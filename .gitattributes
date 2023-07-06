@@ -1,0 +1,8 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+src-tauri/bin/*.dll filter=lfs diff=lfs merge=lfs -text
+src-tauri/bin/*.exe filter=lfs diff=lfs merge=lfs -text
+src-tauri/bin/macos-arm64/ffmpeg filter=lfs diff=lfs merge=lfs -text
+src-tauri/bin/macos-arm64/ffprobe filter=lfs diff=lfs merge=lfs -text
+src-tauri/bin/macos-x64/ffmpeg filter=lfs diff=lfs merge=lfs -text
+src-tauri/bin/macos-x64/ffprobe filter=lfs diff=lfs merge=lfs -text
