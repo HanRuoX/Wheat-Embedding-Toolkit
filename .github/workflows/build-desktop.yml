@@ -43,7 +43,7 @@ jobs:
           workspaces: src-tauri -> target
 
       - name: Install frontend dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install
 
       - name: Build Tauri bundle
         run: yarn tauri build
