@@ -5,13 +5,29 @@ import mitt from "mitt";
 const emitter = mitt();
 export default emitter;
 
-const COMMAND_FALLBACKS: Record<string, string[]> = {
-  "esptool.py": ["esptool.py", "esptool-homebrew-arm", "esptool-homebrew-intel"],
+const isWindows = navigator.userAgent.toLowerCase().includes("windows");
+const isMacOS = navigator.userAgent.toLowerCase().includes("mac os");
+
+const getCommandCandidates = (name: string): string[] => {
+  if (name === "esptool.py") {
+    if (isWindows) {
+      return ["esptool.py", "esptool-windows-bundled"];
+    }
+    if (isMacOS) {
+      return ["esptool.py", "esptool-homebrew-arm", "esptool-homebrew-intel"];
+    }
+  }
+
+  if (name === "gen_esp32part.py" && isWindows) {
+    return ["gen_esp32part.py", "gen_esp32part-windows-bundled"];
+  }
+
+  return [name];
 };
 
 export function execute(name:string,cmd: string[]) {
   const args = cmd.filter((x: string) => x != "");
-  const candidates = COMMAND_FALLBACKS[name] ?? [name];
+  const candidates = getCommandCandidates(name);
 
   const spawnAt = (index: number) => {
     const command = new Command(candidates[index], args as string[]);

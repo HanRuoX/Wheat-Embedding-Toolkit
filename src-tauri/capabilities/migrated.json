@@ -48,8 +48,20 @@
         },
         {
           "args": true,
+          "cmd": "$RESOURCE/bin/esptool-x86_64-pc-windows-msvc.exe",
+          "name": "esptool-windows-bundled",
+          "sidecar": false
+        },
+        {
+          "args": true,
           "cmd": "gen_esp32part.py",
           "name": "gen_esp32part.py",
+          "sidecar": false
+        },
+        {
+          "args": true,
+          "cmd": "$RESOURCE/bin/gen_esp32part-x86_64-pc-windows-msvc.exe",
+          "name": "gen_esp32part-windows-bundled",
           "sidecar": false
         }
       ]
@@ -77,8 +89,20 @@
         },
         {
           "args": true,
+          "cmd": "$RESOURCE/bin/esptool-x86_64-pc-windows-msvc.exe",
+          "name": "esptool-windows-bundled",
+          "sidecar": false
+        },
+        {
+          "args": true,
           "cmd": "gen_esp32part.py",
           "name": "gen_esp32part.py",
+          "sidecar": false
+        },
+        {
+          "args": true,
+          "cmd": "$RESOURCE/bin/gen_esp32part-x86_64-pc-windows-msvc.exe",
+          "name": "gen_esp32part-windows-bundled",
           "sidecar": false
         }
       ]

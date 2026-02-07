@@ -19,10 +19,16 @@ jobs:
         include:
           - os: windows-latest
             platform: windows-x64
-          - os: macos-13
+            target: x86_64-pc-windows-msvc
+            add_rust_target: ""
+          - os: macos-latest
             platform: macos-x64
-          - os: macos-14
+            target: x86_64-apple-darwin
+            add_rust_target: x86_64-apple-darwin
+          - os: macos-latest
             platform: macos-arm64
+            target: aarch64-apple-darwin
+            add_rust_target: ""
 
     steps:
       - name: Checkout
@@ -37,6 +43,10 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Add Rust target
+        if: matrix.add_rust_target != ''
+        run: rustup target add ${{ matrix.add_rust_target }}
+
       - name: Restore Rust cache
         uses: swatinem/rust-cache@v2
         with:
@@ -46,13 +56,13 @@ jobs:
         run: yarn install
 
       - name: Build Tauri bundle
-        run: yarn tauri build
+        run: yarn tauri build --target ${{ matrix.target }}
 
       - name: Upload bundle artifacts
         uses: actions/upload-artifact@v4
         with:
           name: wheat-esp-tools-${{ matrix.platform }}
-          path: src-tauri/target/release/bundle/**
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/**
           if-no-files-found: error
 
   release:
