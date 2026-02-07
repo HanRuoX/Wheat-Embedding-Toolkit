@@ -22,7 +22,7 @@
 </template>
 <script setup lang="ts">
 import { ref } from "vue";
-import db from "@/db/db";
+import getDB from "@/db/db";
 import {
   getFileInfo,
   getIDFArgsConfig,
@@ -35,7 +35,7 @@ import { useRouter } from "vue-router";
 import { useToolsStore } from "@/stores/Tool";
 const store = useToolsStore();
 const router = useRouter();
-const pathList = ref((await db.getAll("paths")).map((item) => item.path));
+const pathList = ref((await (await getDB()).getAll("paths")).map((item) => item.path));
 
 async function flash(path: string) {
   const filename = path.replace(/^.*[\\/]/, "");
@@ -63,15 +63,15 @@ async function flash(path: string) {
 }
 
 const remove = async (path: string) => {
-  db.delete("paths", path);
-  pathList.value = (await db.getAll("paths")).map((item) => item.path);
+  (await getDB()).delete("paths", path);
+  pathList.value = (await (await getDB()).getAll("paths")).map((item) => item.path);
 };
 
 const onSearch = async (text: string) => {
   if (text == "") {
-    pathList.value = (await db.getAll("paths")).map((item) => item.path);
+    pathList.value = (await (await getDB()).getAll("paths")).map((item) => item.path);
   } else {
-    pathList.value = (await db.getAll("paths"))
+    pathList.value = (await (await getDB()).getAll("paths"))
       .map((item) => item.path)
       .filter((x) => x.toLowerCase().includes(text.toLowerCase()));
   }

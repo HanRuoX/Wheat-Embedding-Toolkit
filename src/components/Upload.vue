@@ -20,7 +20,7 @@ import { ref, onBeforeUnmount } from "vue";
 import { InboxOutlined } from "@ant-design/icons-vue";
 
 import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/api/dialog";
+import { open } from "@tauri-apps/plugin-dialog";
 import { useVModels } from "@vueuse/core";
 
 const props = defineProps({

@@ -11,6 +11,11 @@ pinia.use(piniaPluginPersistedstate)
 
 const { toClipboard } = useClipboard();
 const app = createApp(App);
+
+app.config.warnHandler = (msg, _instance, _trace) => {
+  if (msg.includes("Slot \"default\" invoked outside of the render function")) return;
+  console.warn(msg);
+};
 import "./assets/css/style.css";
 
 

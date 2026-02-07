@@ -111,7 +111,7 @@ import { ref, watch } from "vue";
 import SPIMode from "@/components/SPIMode.vue";
 import SerialPortSelect from "@/components/SerialPortSelect.vue";
 import Upload from "@/components/Upload.vue";
-import db from "@/db/db";
+import getDB from "@/db/db";
 import { Firmware } from "@/model/model";
 import cli, { execute } from "@/utils/cli";
 import i18n from "@/locales/i18n";
@@ -218,7 +218,7 @@ const flash = async () => {
   if (eraseChecked.value) {
     cmd.push("--erase-all");
   }
-  execute("esptool", cmd);
+  execute("esptool.py", cmd);
 
   const resultPromise = new Promise((resolve, reject) => {
     cli.on("stdout", (data) => {
@@ -238,7 +238,7 @@ const merge = async () => {
     return;
   }
 
-  let filename = `${currentDir}\\firmware\\${
+  let filename = `${currentDir}/firmware/${
     selectedChipType.value
   }-merge-bin-${moment().format("YYYYMMDDHHmmss")}.bin`;
 
@@ -252,7 +252,7 @@ const merge = async () => {
       .filter((x) => x.check)
       .flatMap((x) => [x.address, x.path]),
   ];
-  execute("esptool", cmd);
+  execute("esptool.py", cmd);
 
   const resultPromise = new Promise((resolve, reject) => {
     cli.on("stdout", (data) => {
@@ -331,7 +331,7 @@ const flashFirmwareBtn = async (item: Firmware) => {
     item.address,
     item.path,
   ];
-  execute("esptool", cmd);
+  execute("esptool.py", cmd);
   const resultPromise = new Promise((resolve, reject) => {
     cli.on("stdout", (data) => {
       console.log(data);
@@ -362,13 +362,13 @@ const uploadHandle = async (paths: string | string[]) => {
         config = await getIDFArgsConfig(paths[0]);
         firmwareList.value = config.flashFiles;
         selectedChipType.value = config.chip;
-        db.add("paths", { path: paths[0] });
+        (await getDB()).add("paths", { path: paths[0] });
         break;
       case "idedata.json":
         config = await getPlatformIOArgsConfig(paths[0]);
         firmwareList.value = config.flashFiles;
         selectedChipType.value = config.chip;
-        db.add("paths", { path: paths[0] });
+        (await getDB()).add("paths", { path: paths[0] });
         break;
     }
     firmwareList.value.forEach(async (item) => {

@@ -129,11 +129,11 @@ async function partitionTableConvert(
 ) {
   let currentDir = await getCurrentDir();
   if (!isBin) {
-    await writeAllText(currentDir + "\\partitions\\temp.csv", input);
+    await writeAllText(currentDir + "/partitions/temp.csv", input);
   }
 
-  execute("gen_esp32part", [
-    !isBin ? currentDir + "\\partitions\\temp.csv" : input,
+  execute("gen_esp32part.py", [
+    !isBin ? currentDir + "/partitions/temp.csv" : input,
     "1",
     ...(flashSize != "NONE" ? ["--flash-size", flashSize] : []),
     "--out-string",

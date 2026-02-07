@@ -1,12 +1,12 @@
-import { invoke } from "@tauri-apps/api/tauri";
+import { invoke } from "@tauri-apps/api/core";
 import {
   readTextFile,
   writeTextFile,
   readDir,
-  removeFile as rf,
+  remove as rf,
   FileEntry,
-} from "@tauri-apps/api/fs";
-import { save } from "@tauri-apps/api/dialog";
+} from "@tauri-apps/plugin-fs";
+import { save } from "@tauri-apps/plugin-dialog";
 import { FileInfo, Firmware } from "@/model/model";
 import prettyBytes from "pretty-bytes";
 
@@ -37,14 +37,14 @@ export async function writeAllText(path: string, text: string) {
 
 export async function getChipTypeList() {
   let jsonData = JSON.parse(
-    await readTextFile((await getCurrentDir()) + "\\chip.list.json")
+    await readTextFile((await getCurrentDir()) + "/chip.list.json")
   );
   return jsonData;
 }
 
 export async function getFirmwareList() {
   let fileList = (await readDir(
-    (await getCurrentDir()) + "\\firmware"
+    (await getCurrentDir()) + "/firmware"
   )) as FileEntry[];
   return fileList.map((item) => {
     return item.path;
@@ -53,7 +53,7 @@ export async function getFirmwareList() {
 
 export async function getIDFArgsConfig(path: string) {
   let config = JSON.parse(await readTextFile(path));
-  const folderPath = path.substring(0, path.lastIndexOf("\\"));
+  const folderPath = path.substring(0, path.lastIndexOf("/"));
   let list = {
     appName: config.app.file.split(".")[0],
     chip: config.extra_esptool_args.chip.toUpperCase(),
@@ -62,7 +62,7 @@ export async function getIDFArgsConfig(path: string) {
 
   Object.keys(config.flash_files).map(async (item) => {
     const fullPath =
-      folderPath + "\\" + config.flash_files[item].replace(/\//g, "\\");
+      folderPath + "/" + config.flash_files[item].replace(/\\/g, "/");
     list.flashFiles.push({
       check: true,
       path: fullPath,
@@ -75,7 +75,7 @@ export async function getIDFArgsConfig(path: string) {
 
 export async function getPlatformIOArgsConfig(path: string) {
   let config = JSON.parse(await readTextFile(path));
-  const folderPath = path.substring(0, path.lastIndexOf("\\"));
+  const folderPath = path.substring(0, path.lastIndexOf("/"));
   // const regex = /ARDUINO_VARIANT=\\"(.*?)\\"/;
   // let match = JSON.stringify(config.defines).match(regex)!;
   let list = {
@@ -87,7 +87,7 @@ export async function getPlatformIOArgsConfig(path: string) {
 
   list.flashFiles.push({
     check: true,
-    path: `${folderPath}\\firmware.bin`,
+    path: `${folderPath}/firmware.bin`,
     address: config.extra.application_offset,
   });
 

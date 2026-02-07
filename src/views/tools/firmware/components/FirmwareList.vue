@@ -3,7 +3,7 @@
     <a
       v-if="pathList.length == 0"
       href="#"
-      @click="openDirectoryInExplorer(currentDir + ' \\firmware')"
+      @click="openDirectoryInExplorer(currentDir + '/firmware')"
       >{{ $t("firmware.openTheFolder") }}</a
     >
     <a-input-search
@@ -64,7 +64,7 @@
               >
             </a-tooltip>
             <a @click="remove(item)">{{ $t("firmware.remove") }}</a> </template
-          >{{ item.substring(item.lastIndexOf("\\") + 1) }}</a-list-item
+          >{{ item.substring(item.lastIndexOf("/") + 1) }}</a-list-item
         >
       </template>
     </a-list>
@@ -104,7 +104,7 @@ async function flash(path: string) {
   if (eraseChecked.value) {
     cmd.push("--erase-all");
   }
-  execute("esptool", cmd);
+  execute("esptool.py", cmd);
 
   const resultPromise = new Promise((resolve, reject) => {
     cli.on("stdout", (data) => {
@@ -130,7 +130,7 @@ const onSearch = async (text: string) => {
     pathList.value = (await getFirmwareList()).filter((x) =>
       x
         .toLowerCase()
-        .substring(x.toLowerCase().lastIndexOf("\\") + 1)
+        .substring(x.toLowerCase().lastIndexOf("/") + 1)
         .includes(text.toLowerCase())
     );
   }

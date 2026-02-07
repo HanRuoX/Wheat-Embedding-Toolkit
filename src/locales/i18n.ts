@@ -72,6 +72,11 @@ const messages = {
       filter: "过滤",
       name: "名称",
       advertising: "广播",
+      deviceCount: "已发现 {count} 个设备",
+      unknownDevice: "未知设备",
+      signalStrong: "信号强",
+      signalMedium: "信号中",
+      signalWeak: "信号弱",
     },
   },
   en: {
@@ -145,6 +150,11 @@ const messages = {
       filter: "Filter",
       name: "Name",
       advertising: "Advertising",
+      deviceCount: "Found {count} devices",
+      unknownDevice: "Unknown Device",
+      signalStrong: "Strong",
+      signalMedium: "Medium",
+      signalWeak: "Weak",
     },
   },
 };

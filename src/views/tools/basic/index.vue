@@ -50,7 +50,7 @@ const currentDir = await getCurrentDir();
 const click = async (item: string[]) => {
   const port = localStorage.getItem("port") as string;
   execute(
-    "esptool",
+    "esptool.py",
     item.map((x) => {
       if (x == "${port}") {
         return port;
@@ -73,8 +73,8 @@ const click = async (item: string[]) => {
 
 const readFlash = async () => {
   const port = localStorage.getItem("port") as string;
-  let savePath = `${currentDir}\\firmware\\read-${moment().valueOf()}.bin`;
-  execute("esptool", [
+  let savePath = `${currentDir}/firmware/read-${moment().valueOf()}.bin`;
+  execute("esptool.py", [
     "-p",
     port,
     "-b",

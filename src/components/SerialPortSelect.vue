@@ -71,7 +71,7 @@ const handleSingleLogLine = (logLine: string) => {
 };
 
 const getDeviceInfo = (port: string) => {
-  execute("esptool", ["-p", port, "-b", "115200", "flash_id"]);
+  execute("esptool.py", ["-p", port, "-b", "115200", "flash_id"]);
   const resultPromise = new Promise((resolve, reject) => {
     cli.on("stdout", (data: any) => {
       console.log(data);
