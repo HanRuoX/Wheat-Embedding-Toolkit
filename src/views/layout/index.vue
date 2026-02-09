@@ -43,13 +43,13 @@
       <a-layout-content :style="{ minHeight: '280px' }">
         <router-view />
       </a-layout-content>
-      <Terminal />
+      <Terminal v-if="showGlobalTerminal" />
     </a-layout>
   </a-layout>
 </template>
 <script setup lang="ts">
 import Terminal from "@/components/Terminal.vue";
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { useRoute, useRouter,RouteRecordRaw } from "vue-router";
 import { storeToRefs } from "pinia";
 import { useToolsStore } from "@/stores/Tool";
@@ -57,9 +57,11 @@ const store = useToolsStore();
 const { selectedKeys } = storeToRefs(store);
 
 const router = useRouter();
+const route = useRoute();
 const routerList = ref(router.options.routes[0].children);
 const openKeys = ref(["tools"]);
-selectedKeys.value = [useRoute().name];
+selectedKeys.value = [route.name];
+const showGlobalTerminal = computed(() => route.name !== "serial");
 const onCollapse = (collapsed: boolean, type: string) => {
   console.log(collapsed, type);
 };

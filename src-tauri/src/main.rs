@@ -5,14 +5,17 @@ use btleplug::api::Peripheral;
 use btleplug::api::{Central, CentralEvent, Manager as _, ScanFilter};
 use btleplug::platform::{Adapter, Manager};
 use futures::stream::StreamExt;
-use serialport::available_ports;
+use serialport::{available_ports, DataBits, FlowControl, Parity, StopBits};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+use std::io::{Read, Write};
 use std::path::Path;
 use std::process::Command;
-use std::sync::mpsc::{self, TryRecvError};
-use std::time::SystemTime;
+use std::sync::mpsc::{self, Sender, TryRecvError};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, SystemTime};
 use tauri::{Emitter, Listener, Manager as _};
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
@@ -35,6 +38,111 @@ struct FileInfo {
     is_file: bool,
     len: u64,
     create_time: u64,
+}
+
+struct SerialSession {
+    writer: Arc<Mutex<Box<dyn serialport::SerialPort>>>,
+    stop_tx: Sender<()>,
+    reader_handle: Option<thread::JoinHandle<()>>,
+}
+
+#[derive(Default)]
+struct SerialAssistantState {
+    sessions: Mutex<HashMap<String, SerialSession>>,
+}
+
+#[derive(serde::Serialize, Clone)]
+struct SerialAssistantEvent {
+    kind: String,
+    text: String,
+    hex: String,
+}
+
+impl SerialAssistantEvent {
+    fn status(text: impl Into<String>) -> Self {
+        Self {
+            kind: "status".to_string(),
+            text: text.into(),
+            hex: String::new(),
+        }
+    }
+
+    fn error(text: impl Into<String>) -> Self {
+        Self {
+            kind: "error".to_string(),
+            text: text.into(),
+            hex: String::new(),
+        }
+    }
+
+    fn data(bytes: &[u8]) -> Self {
+        let hex = bytes
+            .iter()
+            .map(|b| format!("{b:02X}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let text = String::from_utf8_lossy(bytes).to_string();
+        Self {
+            kind: "data".to_string(),
+            text,
+            hex,
+        }
+    }
+}
+
+fn parse_data_bits(bits: u8) -> Result<DataBits, String> {
+    match bits {
+        5 => Ok(DataBits::Five),
+        6 => Ok(DataBits::Six),
+        7 => Ok(DataBits::Seven),
+        8 => Ok(DataBits::Eight),
+        _ => Err("data_bits must be one of: 5, 6, 7, 8".to_string()),
+    }
+}
+
+fn parse_stop_bits(bits: u8) -> Result<StopBits, String> {
+    match bits {
+        1 => Ok(StopBits::One),
+        2 => Ok(StopBits::Two),
+        _ => Err("stop_bits must be one of: 1, 2".to_string()),
+    }
+}
+
+fn parse_parity(parity: &str) -> Result<Parity, String> {
+    match parity.to_ascii_lowercase().as_str() {
+        "none" => Ok(Parity::None),
+        "odd" => Ok(Parity::Odd),
+        "even" => Ok(Parity::Even),
+        _ => Err("parity must be one of: none, odd, even".to_string()),
+    }
+}
+
+fn parse_flow_control(flow_control: &str) -> Result<FlowControl, String> {
+    match flow_control.to_ascii_lowercase().as_str() {
+        "none" => Ok(FlowControl::None),
+        "software" => Ok(FlowControl::Software),
+        "hardware" => Ok(FlowControl::Hardware),
+        _ => Err("flow_control must be one of: none, software, hardware".to_string()),
+    }
+}
+
+fn close_serial_session(state: &SerialAssistantState, label: &str) -> Result<(), String> {
+    let mut session = {
+        let mut sessions = state
+            .sessions
+            .lock()
+            .map_err(|_| "failed to lock serial sessions".to_string())?;
+        sessions.remove(label)
+    };
+
+    if let Some(session) = session.as_mut() {
+        let _ = session.stop_tx.send(());
+        if let Some(handle) = session.reader_handle.take() {
+            let _ = handle.join();
+        }
+    }
+
+    Ok(())
 }
 
 async fn get_central(manager: &Manager) -> Result<Adapter, String> {
@@ -160,6 +268,182 @@ fn get_serial_port_list() -> Vec<String> {
 }
 
 #[tauri::command]
+fn serial_assistant_open(
+    window: tauri::Window,
+    state: tauri::State<SerialAssistantState>,
+    port: String,
+    baud_rate: u32,
+    data_bits: u8,
+    stop_bits: u8,
+    parity: String,
+    flow_control: String,
+) -> Result<(), String> {
+    if port.is_empty() {
+        return Err("port is required".to_string());
+    }
+
+    close_serial_session(&state, window.label())?;
+
+    let data_bits = parse_data_bits(data_bits)?;
+    let stop_bits = parse_stop_bits(stop_bits)?;
+    let parity = parse_parity(&parity)?;
+    let flow_control = parse_flow_control(&flow_control)?;
+
+    let serial = serialport::new(&port, baud_rate)
+        .data_bits(data_bits)
+        .stop_bits(stop_bits)
+        .parity(parity)
+        .flow_control(flow_control)
+        .timeout(Duration::from_millis(100))
+        .open()
+        .map_err(|e| format!("failed to open serial port: {e}"))?;
+
+    let mut reader_port = serial
+        .try_clone()
+        .map_err(|e| format!("failed to clone serial port: {e}"))?;
+    let writer = Arc::new(Mutex::new(serial));
+    let (stop_tx, stop_rx) = mpsc::channel();
+    let cloned_window = window.clone();
+    let port_for_reader = port.clone();
+
+    let reader_handle = thread::spawn(move || {
+        let mut buffer = [0u8; 4096];
+        loop {
+            match stop_rx.try_recv() {
+                Ok(_) | Err(TryRecvError::Disconnected) => break,
+                Err(TryRecvError::Empty) => {}
+            }
+
+            match reader_port.read(&mut buffer) {
+                Ok(size) if size > 0 => {
+                    let payload = SerialAssistantEvent::data(&buffer[..size]);
+                    let _ = cloned_window.emit("serial_assistant_event", payload);
+                }
+                Ok(_) => {}
+                Err(err) if err.kind() == std::io::ErrorKind::TimedOut => {}
+                Err(err) => {
+                    let payload = SerialAssistantEvent::error(format!(
+                        "serial read failed ({port_for_reader}): {err}"
+                    ));
+                    let _ = cloned_window.emit("serial_assistant_event", payload);
+                    break;
+                }
+            }
+        }
+    });
+
+    {
+        let mut sessions = state
+            .sessions
+            .lock()
+            .map_err(|_| "failed to lock serial sessions".to_string())?;
+        sessions.insert(
+            window.label().to_string(),
+            SerialSession {
+                writer,
+                stop_tx,
+                reader_handle: Some(reader_handle),
+            },
+        );
+    }
+
+    let _ = window.emit(
+        "serial_assistant_event",
+        SerialAssistantEvent::status(format!("serial connected: {port} @ {baud_rate}")),
+    );
+    Ok(())
+}
+
+#[tauri::command]
+fn serial_assistant_set_signals(
+    window: tauri::Window,
+    state: tauri::State<SerialAssistantState>,
+    rts: bool,
+    dtr: bool,
+) -> Result<(), String> {
+    let writer = {
+        let sessions = state
+            .sessions
+            .lock()
+            .map_err(|_| "failed to lock serial sessions".to_string())?;
+        let session = sessions
+            .get(window.label())
+            .ok_or_else(|| "serial is not connected".to_string())?;
+        Arc::clone(&session.writer)
+    };
+
+    let mut writer = writer
+        .lock()
+        .map_err(|_| "failed to lock serial writer".to_string())?;
+    writer
+        .write_request_to_send(rts)
+        .map_err(|e| format!("failed to set RTS: {e}"))?;
+    writer
+        .write_data_terminal_ready(dtr)
+        .map_err(|e| format!("failed to set DTR: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn serial_assistant_send(
+    window: tauri::Window,
+    state: tauri::State<SerialAssistantState>,
+    data: Vec<u8>,
+) -> Result<usize, String> {
+    if data.is_empty() {
+        return Ok(0);
+    }
+
+    let writer = {
+        let sessions = state
+            .sessions
+            .lock()
+            .map_err(|_| "failed to lock serial sessions".to_string())?;
+        let session = sessions
+            .get(window.label())
+            .ok_or_else(|| "serial is not connected".to_string())?;
+        Arc::clone(&session.writer)
+    };
+
+    let mut writer = writer
+        .lock()
+        .map_err(|_| "failed to lock serial writer".to_string())?;
+    writer
+        .write_all(&data)
+        .map_err(|e| format!("failed to write serial data: {e}"))?;
+    writer
+        .flush()
+        .map_err(|e| format!("failed to flush serial data: {e}"))?;
+
+    Ok(data.len())
+}
+
+#[tauri::command]
+fn serial_assistant_close(
+    window: tauri::Window,
+    state: tauri::State<SerialAssistantState>,
+) -> Result<(), String> {
+    close_serial_session(&state, window.label())?;
+    let _ = window.emit(
+        "serial_assistant_event",
+        SerialAssistantEvent::status("serial disconnected"),
+    );
+    Ok(())
+}
+
+#[tauri::command]
+fn serial_assistant_is_open(
+    window: tauri::Window,
+    state: tauri::State<SerialAssistantState>,
+) -> Result<bool, String> {
+    let sessions = state
+        .sessions
+        .lock()
+        .map_err(|_| "failed to lock serial sessions".to_string())?;
+    Ok(sessions.contains_key(window.label()))
+}
+
+#[tauri::command]
 fn get_current_dir(app_handle: tauri::AppHandle) -> String {
     let path = app_handle.path().app_data_dir().unwrap_or_else(|_| {
         let mut fallback = env::temp_dir();
@@ -244,6 +528,7 @@ fn get_file_info(path: &str) -> FileInfo {
 
 fn main() {
     tauri::Builder::default()
+        .manage(SerialAssistantState::default())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_dialog::init())
@@ -283,7 +568,12 @@ fn main() {
             open_file_in_explorer,
             open_directory_in_explorer,
             get_file_info,
-            start_ble_advertisement_scan
+            start_ble_advertisement_scan,
+            serial_assistant_open,
+            serial_assistant_send,
+            serial_assistant_close,
+            serial_assistant_is_open,
+            serial_assistant_set_signals
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

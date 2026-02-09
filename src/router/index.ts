@@ -68,6 +68,16 @@ const router = createRouter({
               },
             },
             {
+              path: "/tools/serial",
+              name: "serial",
+              component: () => import("@/views/tools/serial/index.vue"),
+              meta: {
+                icon: "🧵",
+                title: i18n.global.t("menu.serialAssistant"),
+                display: true,
+              },
+            },
+            {
               path: "/tools/firmware",
               name: "firmware",
               component: () => import("@/views/tools/firmware/index.vue"),
