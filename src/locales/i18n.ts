@@ -4,12 +4,24 @@ const messages = {
   zh: {
     menu: {
       toolList: "工具列表",
+      esp32Assistant: "ESP32助手",
+      setting: "设置",
       home: "首页",
       general: "常规",
       partitionTable: "分区表",
       flash: "烧录或合并固件",
       firmware: "固件管理",
       serialAssistant: "串口助手",
+    },
+    setting: {
+      title: "设置",
+      language: "语言",
+      languageZh: "中文",
+      languageEn: "English",
+      theme: "主题",
+      themeDark: "深色",
+      themeLight: "浅色",
+      themeSystem: "跟随系统",
     },
     general: {
       eraseFlash: "擦除Flash",
@@ -128,12 +140,24 @@ const messages = {
   en: {
     menu: {
       toolList: "Tool List",
+      esp32Assistant: "ESP32 Assistant",
+      setting: "Settings",
       home: "Home",
       general: "General",
       partitionTable: "Partition Table",
       flash: "Flash & Merge",
       firmware: "Firmware",
       serialAssistant: "Serial Assistant",
+    },
+    setting: {
+      title: "Settings",
+      language: "Language",
+      languageZh: "Chinese",
+      languageEn: "English",
+      theme: "Theme",
+      themeDark: "Dark",
+      themeLight: "Light",
+      themeSystem: "System",
     },
     general: {
       eraseFlash: "Erase Flash",

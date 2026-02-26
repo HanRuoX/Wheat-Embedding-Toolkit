@@ -94,7 +94,7 @@ const router = createRouter({
           name: "setting",
           meta: {
             icon: "⚙️",
-            title: "设置",
+            title: i18n.global.t("menu.setting"),
             display: false,
           },
           component: () => import("@/views/setting/index.vue"),

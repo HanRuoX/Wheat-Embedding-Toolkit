@@ -1,5 +1,5 @@
 <template>
-  <div class="serial-page">
+  <div class="serial-page" :class="{ 'is-light': preferenceStore.resolvedTheme === 'light' }">
     <div class="serial-main">
       <div class="left-panel">
         <div class="terminal-wrap">
@@ -128,6 +128,7 @@ import {
   serialAssistantSetSignals,
 } from "@/utils/serial";
 import i18n from "@/locales/i18n";
+import { usePreferenceStore, type ResolvedTheme } from "@/stores/Preference";
 
 type SelectOption = { label: string; value: string };
 type SerialHistoryRecord = {
@@ -139,6 +140,7 @@ type SerialHistoryRecord = {
 };
 
 const terminalContainer = ref<HTMLElement | null>(null);
+const preferenceStore = usePreferenceStore();
 const serialPortOptions = ref<SelectOption[]>([]);
 const selectedPort = ref<string | undefined>(localStorage.getItem("port") ?? undefined);
 const selectedBaudRate = ref("115200");
@@ -207,6 +209,39 @@ let periodicTimer: ReturnType<typeof setInterval> | null = null;
 let unlistenSerial: UnlistenFn | null = null;
 let resizeHandler: (() => void) | null = null;
 let rxLineBuffer = "";
+
+const getTerminalTheme = (themeMode: ResolvedTheme) =>
+  themeMode === "light"
+    ? {
+        background: "#f5f7fb",
+        foreground: "#1f2a37",
+        cursor: "#2563eb",
+        cursorAccent: "#f5f7fb",
+        selectionBackground: "#c9d9ff",
+        black: "#1f2937",
+        red: "#b42318",
+        green: "#157347",
+        yellow: "#9a6700",
+        blue: "#1d4ed8",
+        magenta: "#9f2a8a",
+        cyan: "#0b7285",
+        white: "#d0d7de",
+        brightBlack: "#6b7280",
+        brightRed: "#d92d20",
+        brightGreen: "#2f9e44",
+        brightYellow: "#b58105",
+        brightBlue: "#2563eb",
+        brightMagenta: "#b83280",
+        brightCyan: "#1098ad",
+        brightWhite: "#111827",
+      }
+    : {
+        background: "#1d1f27",
+        foreground: "#f2f2f2",
+        cursor: "#3a8bff",
+        cursorAccent: "#1d1f27",
+        selectionBackground: "#2c3f67",
+      };
 
 const ansi = {
   reset: "\x1b[0m",
@@ -285,12 +320,23 @@ const splitAndSave = (text: string) => {
     });
 };
 
+const shouldStickToBottom = () => {
+  if (!terminal) {
+    return true;
+  }
+  const buffer = terminal.buffer.active;
+  return buffer.baseY - buffer.viewportY <= 1;
+};
+
 const writeRaw = (text: string) => {
   if (!terminal || !text) {
     return;
   }
+  const stickToBottom = shouldStickToBottom();
   terminal.write(normalizeAnsiEscapes(text));
-  terminal.scrollToBottom();
+  if (stickToBottom) {
+    terminal.scrollToBottom();
+  }
   splitAndSave(text);
 };
 
@@ -298,8 +344,11 @@ const writeLine = (text: string) => {
   if (!terminal) {
     return;
   }
+  const stickToBottom = shouldStickToBottom();
   terminal.writeln(normalizeAnsiEscapes(text));
-  terminal.scrollToBottom();
+  if (stickToBottom) {
+    terminal.scrollToBottom();
+  }
   splitAndSave(text);
 };
 
@@ -658,20 +707,48 @@ watch(periodicInterval, () => {
   }
 });
 
+watch(sendHex, (isHexMode, wasHexMode) => {
+  if (isHexMode === wasHexMode) {
+    return;
+  }
+
+  const currentInput = sendInput.value;
+  if (!currentInput) {
+    return;
+  }
+
+  try {
+    if (isHexMode) {
+      const data = Array.from(new TextEncoder().encode(currentInput));
+      sendInput.value = bytesToHex(data);
+      return;
+    }
+
+    const data = parseHexInput(currentInput);
+    sendInput.value = new TextDecoder().decode(Uint8Array.from(data));
+  } catch (error) {
+    message.warning(String(error));
+  }
+});
+
 watch([receiveHex, showTxRx, showTimestamp], () => {
   replayHistory();
 });
+
+watch(
+  () => preferenceStore.resolvedTheme,
+  (themeMode) => {
+    terminal?.setOption("theme", getTerminalTheme(themeMode));
+  }
+);
 
 onMounted(async () => {
   terminal = new Terminal({
     fontSize: 14,
     convertEol: true,
     cursorBlink: true,
-    theme: {
-      background: "#1d1f27",
-      foreground: "#f2f2f2",
-      cursor: "#3a8bff",
-    },
+    scrollback: 5000,
+    theme: getTerminalTheme(preferenceStore.resolvedTheme),
   });
 
   if (terminalContainer.value) {
@@ -713,16 +790,37 @@ onBeforeUnmount(async () => {
 
 <style scoped>
 .serial-page {
-  height: 100vh;
+  height: 100%;
   min-height: 0;
-  max-height: 100vh;
-  padding: 4px;
+  max-height: 100%;
+  padding: 4px 4px 4px 0;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  background: linear-gradient(180deg, #12151d 0%, #0f1218 100%);
+  background: var(--serial-page-bg, linear-gradient(180deg, #12151d 0%, #0f1218 100%));
   overflow: hidden;
+}
+
+.serial-page.is-light {
+  --serial-page-bg: linear-gradient(180deg, #f7f9fd 0%, #edf2f8 100%);
+  --serial-terminal-wrap-bg: linear-gradient(90deg, #eff4fb 0%, #f7faff 100%);
+  --serial-terminal-bg: #f5f7fb;
+  --serial-terminal-scroll-thumb: #aeb8c8;
+  --serial-terminal-scroll-track: #dde4ef;
+  --serial-card-bg: #f8fafc;
+  --serial-panel-border: #d7dfeb;
+  --serial-label-color: #334155;
+  --serial-card-title: #1f2937;
+  --serial-muted-text: #4b5563;
+  --serial-input-bg: #ffffff;
+  --serial-input-text: #1f2937;
+  --serial-input-placeholder: #94a3b8;
+  --serial-input-border: #d4dce8;
+  --serial-input-border-active: #91acd8;
+  --serial-bottom-bar-bg: #f1f5fb;
+  --serial-search-input-bg: #ffffff;
+  --serial-search-input-hover-bg: #f9fbff;
 }
 
 .serial-main {
@@ -747,9 +845,9 @@ onBeforeUnmount(async () => {
   min-width: 0;
   min-height: 280px;
   flex: 1;
-  border: none;
-  background: linear-gradient(90deg, #1a1d25 0%, #20232d 100%);
-  border-radius: 8px;
+  border: 1px solid var(--serial-panel-border, rgba(255, 255, 255, 0.05));
+  background: var(--serial-terminal-wrap-bg, linear-gradient(90deg, #1a1d25 0%, #20232d 100%));
+  border-radius: 0;
   overflow: hidden;
 }
 
@@ -760,19 +858,33 @@ onBeforeUnmount(async () => {
 }
 
 .terminal-view :deep(.xterm),
-.terminal-view :deep(.xterm-screen),
 .terminal-view :deep(.xterm-viewport) {
-  width: 100% !important;
-  max-width: 100% !important;
+  background: var(--serial-terminal-bg, #1d1f27) !important;
 }
 
-.terminal-view :deep(.xterm-screen) {
-  left: 0 !important;
+.terminal-view :deep(.xterm) {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.terminal-view :deep(.xterm-viewport) {
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
 }
 
 .terminal-view :deep(.xterm-viewport)::-webkit-scrollbar {
-  width: 0 !important;
-  height: 0 !important;
+  width: 8px;
+  height: 8px;
+}
+
+.terminal-view :deep(.xterm-viewport)::-webkit-scrollbar-thumb {
+  background: var(--serial-terminal-scroll-thumb, #3a4157);
+  border-radius: 8px;
+  border: 2px solid var(--serial-terminal-scroll-track, #131722);
+}
+
+.terminal-view :deep(.xterm-viewport)::-webkit-scrollbar-track {
+  background: var(--serial-terminal-scroll-track, #131722);
 }
 
 .right-panel {
@@ -790,10 +902,10 @@ onBeforeUnmount(async () => {
 }
 
 .settings-card {
-  border: none;
+  border: 1px solid var(--serial-panel-border, rgba(255, 255, 255, 0.05));
   border-radius: 8px;
   padding: 8px;
-  background: #141824;
+  background: var(--serial-card-bg, #141824);
 }
 
 .setting-row {
@@ -810,7 +922,7 @@ onBeforeUnmount(async () => {
 }
 
 .setting-row label {
-  color: #d8deed;
+  color: var(--serial-label-color, #d8deed);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.2px;
@@ -838,15 +950,15 @@ onBeforeUnmount(async () => {
 }
 
 .panel-card {
-  background: #141824;
-  border: none !important;
+  background: var(--serial-card-bg, #141824);
+  border: 1px solid var(--serial-panel-border, rgba(255, 255, 255, 0.05)) !important;
   border-radius: 8px;
 }
 
 .panel-card :deep(.ant-card-head) {
   min-height: 40px;
   border-bottom: none;
-  color: #eaf0ff;
+  color: var(--serial-card-title, #eaf0ff);
   font-size: 14px;
 }
 
@@ -867,7 +979,7 @@ onBeforeUnmount(async () => {
 }
 
 .check-row span {
-  color: #cfd5e4;
+  color: var(--serial-muted-text, #cfd5e4);
   font-size: 12px;
 }
 
@@ -877,17 +989,17 @@ onBeforeUnmount(async () => {
 }
 
 .search-row :deep(.ant-input) {
-  background: #0b0f17 !important;
-  color: #eef3ff !important;
+  background: var(--serial-search-input-bg, #0b0f17) !important;
+  color: var(--serial-input-text, #edf2ff) !important;
 }
 
 .search-row :deep(.ant-input::placeholder) {
-  color: #9ca6bd !important;
+  color: var(--serial-input-placeholder, #9ca6bd) !important;
 }
 
 .search-row :deep(.ant-input:hover),
 .search-row :deep(.ant-input:focus) {
-  background: #090d15 !important;
+  background: var(--serial-search-input-hover-bg, #090d15) !important;
 }
 
 .search-row .ant-btn {
@@ -899,8 +1011,8 @@ onBeforeUnmount(async () => {
   gap: 12px;
   align-items: stretch;
   padding: 10px;
-  background: #0d1016;
-  border: none;
+  background: var(--serial-bottom-bar-bg, #0d1016);
+  border: 1px solid var(--serial-panel-border, rgba(255, 255, 255, 0.05));
   border-radius: 8px;
 }
 
@@ -930,9 +1042,9 @@ onBeforeUnmount(async () => {
 .serial-page :deep(.ant-input),
 .serial-page :deep(.ant-input-number),
 .serial-page :deep(.ant-input-number input) {
-  background: #10141d !important;
-  color: #edf2ff !important;
-  border: none !important;
+  background: var(--serial-input-bg, #10141d) !important;
+  color: var(--serial-input-text, #edf2ff) !important;
+  border: 1px solid var(--serial-input-border, transparent) !important;
   box-shadow: none !important;
 }
 
@@ -948,8 +1060,8 @@ onBeforeUnmount(async () => {
 .serial-page :deep(.ant-input-number:hover),
 .serial-page :deep(.ant-input-number-focused),
 .serial-page :deep(.ant-select-focused .ant-select-selector) {
-  border: none !important;
-  box-shadow: none !important;
+  border: 1px solid var(--serial-input-border-active, transparent) !important;
+  box-shadow: 0 0 0 2px var(--accent-soft) !important;
 }
 
 .serial-page :deep(.ant-btn) {
@@ -958,7 +1070,7 @@ onBeforeUnmount(async () => {
 
 .serial-page :deep(.ant-checkbox-wrapper),
 .serial-page :deep(.ant-checkbox-wrapper span) {
-  color: #d2d8e6;
+  color: var(--serial-muted-text, #cfd5e4);
   font-size: 12px;
 }
 
@@ -967,7 +1079,8 @@ onBeforeUnmount(async () => {
 }
 
 .serial-page :deep(.xterm .xterm-viewport) {
-  scrollbar-color: #3a4157 #131722;
+  scrollbar-color: var(--serial-terminal-scroll-thumb, #3a4157)
+    var(--serial-terminal-scroll-track, #131722);
 }
 
 @media (max-width: 1200px) {
@@ -1030,5 +1143,26 @@ onBeforeUnmount(async () => {
   white-space: nowrap !important;
   overflow: visible !important;
   text-overflow: clip !important;
+}
+
+.serial-page .xterm .xterm-viewport {
+  background: var(--serial-terminal-bg, #1d1f27) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+}
+
+.serial-page .xterm .xterm-viewport::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.serial-page .xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--serial-terminal-scroll-thumb, #3a4157);
+  border-radius: 8px;
+  border: 2px solid var(--serial-terminal-scroll-track, #131722);
+}
+
+.serial-page .xterm .xterm-viewport::-webkit-scrollbar-track {
+  background: var(--serial-terminal-scroll-track, #131722);
 }
 </style>

@@ -9,6 +9,15 @@ import piniaPluginPersistedstate from 'pinia-plugin-persistedstate'
 const pinia = createPinia();
 pinia.use(piniaPluginPersistedstate)
 
+const userAgent = navigator.userAgent.toLowerCase();
+if (userAgent.includes("mac")) {
+  document.documentElement.setAttribute("data-os", "mac");
+} else if (userAgent.includes("win")) {
+  document.documentElement.setAttribute("data-os", "win");
+} else {
+  document.documentElement.setAttribute("data-os", "linux");
+}
+
 const { toClipboard } = useClipboard();
 const app = createApp(App);
 

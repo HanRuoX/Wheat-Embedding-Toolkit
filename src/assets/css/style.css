@@ -1,16 +1,78 @@
+:root {
+  --app-bg: #0f131a;
+  --panel-bg: #141a24;
+  --panel-bg-strong: #1b2230;
+  --panel-border: #2d384c;
+  --text-primary: #eaf0ff;
+  --text-secondary: #c1cbe0;
+  --scrollbar-track: #121826;
+  --scrollbar-thumb: #3a465e;
+  --scrollbar-thumb-border: #101622;
+  --scrollbar-track-shadow: rgba(0, 0, 0, 0.3);
+  --accent: #5d8eff;
+  --accent-strong: #3f6fdc;
+  --accent-soft: rgba(93, 142, 255, 0.2);
+  --app-font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", Arial, sans-serif;
+}
+
+:root[data-os="mac"] {
+  --app-font-family: "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", -apple-system,
+    BlinkMacSystemFont, "SF Pro Text", sans-serif;
+}
+
+:root[data-os="linux"] {
+  --app-font-family: "Noto Sans CJK SC", "Noto Sans", "WenQuanYi Micro Hei", "DejaVu Sans",
+    sans-serif;
+}
+
+:root[data-theme="light"] {
+  --app-bg: #eef2f7;
+  --panel-bg: #f8fafc;
+  --panel-bg-strong: #e3e9f1;
+  --panel-border: #cfd8e3;
+  --text-primary: #1b2530;
+  --text-secondary: #3d4a57;
+  --scrollbar-track: #d8dee7;
+  --scrollbar-thumb: #9ca8b6;
+  --scrollbar-thumb-border: #d8dee7;
+  --scrollbar-track-shadow: rgba(72, 87, 106, 0.18);
+  --accent: #4a6fd2;
+  --accent-strong: #2f56bc;
+  --accent-soft: rgba(74, 111, 210, 0.15);
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  font-family: var(--app-font-family);
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--app-bg);
+}
+
+input,
+button,
+textarea,
+select {
+  font-family: inherit;
+}
 
 *::-webkit-scrollbar-track {
-  -webkit-box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.3);
-  background-color: #141414;
+  -webkit-box-shadow: inset 0 0 6px var(--scrollbar-track-shadow);
+  background-color: var(--scrollbar-track);
 }
 
 *::-webkit-scrollbar-thumb {
-  background-color: #000000;
-  border: 2px solid #555555;
+  background-color: var(--scrollbar-thumb);
+  border: 2px solid var(--scrollbar-thumb-border);
 }
 
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
-  background-color: #141414;
+  background-color: var(--scrollbar-track);
 }

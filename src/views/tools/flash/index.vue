@@ -1,20 +1,21 @@
 <template>
-  <div style="padding: 10px">
+  <div class="flash-page">
     <SerialPortSelect />
+
     <a-row
-      style="margin-bottom: 5px"
+      class="flash-config-row"
       type="flex"
       justify="space-around"
       align="middle"
     >
-      <a-col :span="8">
+      <a-col :xs="24" :md="8" class="flash-config-col">
         <SPIMode v-model="selectedMode" />
       </a-col>
-      <a-col :span="8">
+      <a-col :xs="24" :md="8" class="flash-config-col">
         <a-tooltip>
           <template #title>{{ $t("flash.baudRate") }}</template>
           <a-auto-complete
-            style="width: 90%"
+            class="flash-config-control"
             v-model:value="selectedBaud"
             size="small"
             :placeholder="$t('flash.baudRate')"
@@ -28,11 +29,11 @@
             ]"
         /></a-tooltip>
       </a-col>
-      <a-col :span="8">
+      <a-col :xs="24" :md="8" class="flash-config-col">
         <a-tooltip>
           <template #title>{{ $t("flash.mergeInfo") }}</template>
           <a-select
-            style="width: 90%"
+            class="flash-config-control"
             size="small"
             :placeholder="$t('flash.chipType')"
             v-model:value="selectedChipType"
@@ -43,7 +44,7 @@
       </a-col>
     </a-row>
 
-    <div ref="target">
+    <div ref="target" class="flash-upload">
       <Upload
         :title="$t('flash.dropTitle')"
         :subtitle="$t('flash.dropSubtitle')"
@@ -54,13 +55,12 @@
       />
     </div>
     <a-table
-      style="margin: 5px 0"
       :bordered="true"
       :pagination="false"
       :dataSource="firmwareList"
       :columns="columns"
       size="small"
-      class="scroll"
+      class="scroll flash-table"
     >
       <template #headerCell="{ column }">
         <template v-if="column.key === 'check'">
@@ -86,19 +86,21 @@
         </template>
       </template>
     </a-table>
-    <a-tooltip>
-      <template #title>{{ $t("flash.eraseFlashInfo") }}</template>
-      <a-checkbox v-model:checked="eraseChecked">{{
-        $t("flash.eraseFlash")
-      }}</a-checkbox></a-tooltip
-    >
-    <a-row :gutter="16">
-      <a-col :span="12">
+    <div class="flash-extra">
+      <a-tooltip>
+        <template #title>{{ $t("flash.eraseFlashInfo") }}</template>
+        <a-checkbox v-model:checked="eraseChecked">{{
+          $t("flash.eraseFlash")
+        }}</a-checkbox></a-tooltip
+      >
+    </div>
+    <a-row class="flash-actions" :gutter="12">
+      <a-col :xs="24" :md="12">
         <a-button type="primary" @click="handle(flash)" block>{{
           $t("flash.flash")
         }}</a-button></a-col
       >
-      <a-col :span="12"
+      <a-col :xs="24" :md="12"
         ><a-button type="primary" @click="handle(merge)" block>
           {{ $t("flash.merge") }}
         </a-button></a-col
@@ -419,3 +421,78 @@ const flashCheckAllChange = () => {
   }
 };
 </script>
+<style scoped>
+.flash-page {
+  padding: 10px;
+}
+
+.flash-config-row {
+  margin-bottom: 6px;
+  row-gap: 8px;
+}
+
+.flash-config-col {
+  display: flex;
+  justify-content: center;
+}
+
+.flash-config-control {
+  width: 90%;
+}
+
+.flash-upload {
+  margin-bottom: 6px;
+}
+
+.flash-table {
+  margin: 5px 0;
+}
+
+.flash-table :deep(.ant-table-bordered > .ant-table-container) {
+  border-color: var(--panel-border);
+}
+
+.flash-table :deep(.ant-table) {
+  background: var(--panel-bg);
+  color: var(--text-secondary);
+}
+
+.flash-table :deep(.ant-table-thead > tr > th) {
+  background: var(--panel-bg-strong);
+  color: var(--text-primary);
+  border-color: var(--panel-border);
+}
+
+.flash-table :deep(.ant-table-tbody > tr > td) {
+  background: var(--panel-bg);
+  color: var(--text-secondary);
+  border-color: var(--panel-border);
+}
+
+.flash-table :deep(.ant-table-tbody > tr:hover > td) {
+  background: var(--accent-soft);
+}
+
+.flash-table :deep(.ant-table-cell .ant-input) {
+  color: var(--text-primary);
+}
+
+.flash-table :deep(.ant-table-cell .ant-input::placeholder) {
+  color: var(--text-secondary);
+}
+
+.flash-extra {
+  margin: 4px 2px 8px;
+  color: var(--text-primary);
+}
+
+.flash-actions :deep(.ant-btn) {
+  height: 36px;
+}
+
+@media (max-width: 768px) {
+  .flash-config-control {
+    width: 100%;
+  }
+}
+</style>

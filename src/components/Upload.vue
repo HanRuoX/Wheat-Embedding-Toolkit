@@ -1,17 +1,9 @@
 <template>
-  <div>
+  <div class="upload-root">
     <div :class="dropBoxClass" @click="handle">
-      <InboxOutlined style="font-size: 40px; color: #08c; align-self: center" />
-      <span
-        style="
-          display: block;
-          font-size: 18px;
-          color: white;
-          align-self: center;
-        "
-        >{{ title }}</span
-      >
-      <div style="align-self: center; color: gray" v-html="subtitle"></div>
+      <InboxOutlined class="drop-icon" />
+      <span class="drop-title">{{ title }}</span>
+      <div class="drop-subtitle" v-html="subtitle"></div>
     </div>
   </div>
 </template>
@@ -73,33 +65,86 @@ onBeforeUnmount(() => {
 });
 </script>
 
-<style>
+<style scoped>
+.upload-root {
+  width: 100%;
+}
+
 .dropBox {
   width: 100%;
-  height: 130px;
-  border: 1px dashed #434343;
+  min-height: 130px;
+  border: 1px dashed var(--panel-border);
+  border-radius: 10px;
+  background: var(--panel-bg);
   display: flex;
   flex-direction: column;
+  align-items: center;
   justify-content: center;
-  transition: all ease 0.5s;
-  /* transition: 0.5s ease; */
+  gap: 8px;
+  padding: 14px 12px;
+  box-sizing: border-box;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
 }
 
 .dropBox:hover {
-  width: 100%;
-  height: 130px;
-  border: 1px dashed #177ddc;
+  border: 1px dashed var(--accent);
+  background: var(--panel-bg-strong);
   cursor: pointer;
-  transition: all ease 1s;
 }
 
 .dropBoxHover {
   width: 100%;
-  height: 130px;
-  border: 1px dashed #177ddc;
+  min-height: 130px;
+  border: 1px dashed var(--accent);
+  border-radius: 10px;
+  background: var(--panel-bg-strong);
   display: flex;
   flex-direction: column;
+  align-items: center;
   justify-content: center;
-  transition: all ease 1s;
+  gap: 8px;
+  padding: 14px 12px;
+  box-sizing: border-box;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.drop-icon {
+  font-size: 34px;
+  color: var(--accent);
+}
+
+.drop-title {
+  display: block;
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.drop-subtitle {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  text-align: center;
+  word-break: break-word;
+}
+
+.drop-subtitle :deep(b) {
+  color: var(--text-primary);
+}
+
+@media (max-width: 768px) {
+  .drop-icon {
+    font-size: 30px;
+  }
+
+  .drop-title {
+    font-size: 15px;
+  }
+
+  .drop-subtitle {
+    font-size: 12px;
+  }
 }
 </style>

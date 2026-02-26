@@ -1,8 +1,9 @@
 <template>
-  <a-row>
+  <a-row class="ble-page">
     <a-col :span="16">
-      <div style="height: calc(100vh - 160px); overflow: auto">
+      <div class="ble-list-wrap">
         <a-list
+          class="ble-device-list"
           size="small"
           item-layout="vertical"
           :data-source="filteredData"
@@ -11,11 +12,11 @@
           <template #header>
             <a-badge
               :count="filteredData.length"
-              :number-style="{ backgroundColor: '#1890ff' }"
+              :number-style="badgeNumberStyle"
               :offset="[10, 0]"
               show-zero
             >
-              <span style="color: rgba(255, 255, 255, 0.65)">
+              <span class="ble-count-text">
                 {{ $t('ble.deviceCount', { count: filteredData.length }) }}
               </span>
             </a-badge>
@@ -29,7 +30,7 @@
                 </span>
               </template>
               <template #extra>
-                <div style="width: 80px">
+                <div class="ble-live-bar">
                   <a-progress
                     :percent="Math.max(0, 100 - (now - item.time) * 10)"
                     :size="10"
@@ -39,17 +40,17 @@
               </template>
               <a-list-item-meta>
                 <template #title>
-                  <p v-if="item.local_name" v-copy>{{ item.local_name }}</p>
-                  <p v-else style="color: rgba(255, 255, 255, 0.35); font-style: italic">
+                  <p v-if="item.local_name" class="ble-name" v-copy>{{ item.local_name }}</p>
+                  <p v-else class="ble-name-empty">
                     {{ $t('ble.unknownDevice') }}
                   </p>
                 </template>
                 <template #description>
-                  <p v-copy>{{ item.address }}</p>
+                  <p class="ble-address" v-copy>{{ item.address }}</p>
 
                   <template v-if="item.services.length != 0">
                     <a-tag
-                      style="margin-bottom: 3px"
+                      class="ble-tag"
                       color="blue"
                       v-for="service in item.services"
                       :key="service"
@@ -59,7 +60,7 @@
                   </template>
 
                   <a-tag
-                    style="margin-bottom: 3px; white-space: normal; word-break: break-all"
+                    class="ble-tag ble-tag-break"
                     v-if="item.adv.length != 0"
                     color="cyan"
                     v-copy
@@ -72,7 +73,7 @@
                   >
                   <template v-if="Object.keys(item.manufacturer_data).length != 0">
                     <a-tag
-                      style="margin-bottom: 3px; white-space: normal; word-break: break-all"
+                      class="ble-tag ble-tag-break"
                       v-for="key in Object.keys(item.manufacturer_data)"
                       :key="key"
                       color="cyan"
@@ -99,36 +100,36 @@
       </div></a-col
     >
     <a-col :span="8">
-      <div style="margin: 5px">
+      <div class="ble-filter-wrap">
         <a-button
-          style="margin-bottom: 5px"
+          class="ble-scan-btn"
           type="primary"
           @click="scan"
           :danger="scanState"
           block
           >{{ scanBtnText }}</a-button
         >
-        <a-card size="small" :title="$t('ble.filter')" style="margin-bottom: 5px">
+        <a-card size="small" :title="$t('ble.filter')" class="ble-filter-card">
           <a-input
-            style="margin-bottom: 5px"
+            class="ble-filter-input"
             v-model:value="filter.name"
             :addon-before="$t('ble.name')"
             allowClear
           />
           <a-input
-            style="margin-bottom: 5px"
+            class="ble-filter-input"
             v-model:value="filter.address"
             addon-before="MAC"
             allowClear
           />
           <a-input
-            style="margin-bottom: 5px"
+            class="ble-filter-input"
             v-model:value="filter.adv"
             :addon-before="$t('ble.advertising')"
             allowClear
           />
           <a-input
-            style="margin-bottom: 5px"
+            class="ble-filter-input"
             v-model:value="filter.uuid"
             addon-before="UUID"
             allowClear
@@ -138,11 +139,11 @@
             addon-before="RSSI"
             :min="1"
             :max="100"
-            style="width: 100%"
+            class="ble-rssi-input"
             v-model:value="filter.rssi"
           />
           <a-slider
-            style="margin-bottom: 5px"
+            class="ble-rssi-slider"
             v-model:value="filter.rssi"
             :min="0"
             :max="100"
@@ -177,6 +178,7 @@ const allData = ref([] as any);
 const scanBtnText = ref(i18n.global.t("ble.startScanning"));
 const scanState = ref(false);
 const now = ref(moment().unix());
+const badgeNumberStyle = { backgroundColor: "var(--accent)" };
 const filter = reactive({
   name: "",
   address: "",
@@ -298,3 +300,141 @@ const scan = async () => {
   }
 };
 </script>
+
+<style scoped>
+.ble-page {
+  height: 100%;
+}
+
+.ble-list-wrap {
+  height: calc(100vh - 160px);
+  overflow: auto;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+}
+
+.ble-filter-wrap {
+  margin: 5px;
+}
+
+.ble-device-list :deep(.ant-list-header) {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.ble-device-list :deep(.ant-list-item) {
+  padding: 10px 14px;
+  border-bottom-color: var(--panel-border);
+}
+
+.ble-device-list :deep(.ant-list-item-meta-title) {
+  margin-bottom: 4px;
+}
+
+.ble-device-list :deep(.ant-list-item-meta-description) {
+  color: var(--text-secondary);
+}
+
+.ble-device-list :deep(.ant-list-empty-text) {
+  color: var(--text-secondary);
+}
+
+.ble-count-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.ble-live-bar {
+  width: 84px;
+}
+
+.ble-name {
+  margin: 0;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.ble-name-empty {
+  margin: 0;
+  color: var(--text-secondary);
+  font-style: italic;
+  opacity: 0.85;
+}
+
+.ble-address {
+  margin: 0 0 6px;
+  color: var(--text-secondary);
+  font-family: "JetBrains Mono", "SFMono-Regular", "Consolas", monospace;
+}
+
+.ble-tag {
+  margin-bottom: 4px;
+}
+
+.ble-tag-break {
+  white-space: normal;
+  word-break: break-all;
+}
+
+.ble-scan-btn {
+  margin-bottom: 8px;
+  height: 36px;
+}
+
+.ble-filter-card {
+  margin-bottom: 5px;
+}
+
+.ble-filter-input {
+  margin-bottom: 6px;
+}
+
+.ble-rssi-input {
+  width: 100%;
+}
+
+.ble-rssi-slider {
+  margin-bottom: 8px;
+}
+
+.ble-filter-card :deep(.ant-card-head) {
+  background: var(--panel-bg-strong);
+  border-bottom-color: var(--panel-border);
+}
+
+.ble-filter-card :deep(.ant-card-head-title) {
+  color: var(--text-primary);
+}
+
+.ble-filter-card :deep(.ant-card-body) {
+  background: var(--panel-bg);
+}
+
+.ble-filter-card :deep(.ant-input-group-addon) {
+  color: var(--text-secondary);
+  background: var(--panel-bg-strong);
+  border-color: var(--panel-border);
+}
+
+.ble-filter-card :deep(.ant-input),
+.ble-filter-card :deep(.ant-input-number),
+.ble-filter-card :deep(.ant-input-number-group-addon) {
+  color: var(--text-primary);
+  background: var(--panel-bg);
+  border-color: var(--panel-border);
+}
+
+.ble-filter-card :deep(.ant-slider-rail) {
+  background: var(--panel-border);
+}
+
+.ble-filter-card :deep(.ant-slider-track) {
+  background: var(--accent);
+}
+
+.ble-filter-card :deep(.ant-slider-handle::after) {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+</style>
