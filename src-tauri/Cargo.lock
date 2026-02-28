@@ -5172,7 +5172,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "wheat-esp-tools"
+name = "wheat-embedding-toolkit"
 version = "0.0.1"
 dependencies = [
  "anyhow",

@@ -1,6 +1,6 @@
 <template>
   <div class="home-page">
-    <h1 class="home-title">Wheat ESP Tools</h1>
+    <h1 class="home-title">Wheat Embedding Toolkit</h1>
   </div>
 </template>
 <style scoped>

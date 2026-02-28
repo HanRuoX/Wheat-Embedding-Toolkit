@@ -1,6 +1,26 @@
-# Wheat ESP Tools
+# Wheat Embedding Toolkit
 
 简体中文 | [English](./README-EN.md)
+
+## 重新生成桌面图标
+
+替换 `public/wheat_logo.png` 后执行：
+
+```bash
+yarn icons:regen
+```
+
+如需指定其他源图：
+
+```bash
+bash ./scripts/regenerate-icons.sh /path/to/logo.png
+```
+
+默认会生成更适合 macOS 桌面的“圆角底板”图标。如果你想保留透明底：
+
+```bash
+ICON_STYLE=transparent yarn icons:regen
+```
 
 ## 常规
 ![](images/zh-1.png)
@@ -39,5 +59,5 @@
 ✅ 历史烧录路径
 
 ✅ 搜索固件
-
+生成logo yarn tauri icon src/assets/wheat_logo.png
 ![](images/zh-5.png)

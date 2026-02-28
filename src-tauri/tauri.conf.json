@@ -30,8 +30,8 @@
     ],
     "targets": "all"
   },
-  "productName": "Wheat ESP Tools",
-  "mainBinaryName": "Wheat ESP Tools",
+  "productName": "Wheat Embedding Toolkit",
+  "mainBinaryName": "Wheat Embedding Toolkit",
   "version": "1.0.0",
   "identifier": "com.vaemc.wheat.esp.tools",
   "plugins": {},
@@ -44,7 +44,7 @@
         "theme": null,
         "height": 800,
         "minHeight": 800,
-        "title": "Wheat ESP Tools",
+        "title": "Wheat Embedding Toolkit",
         "width": 950,
         "minWidth": 950,
         "useHttpsScheme": true

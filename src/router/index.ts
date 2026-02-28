@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory } from "vue-router";
 import Layout from "@/views/layout/index.vue";
 import i18n from "@/locales/i18n";
+import bleIcon from "@/assets/ble-icon.png";
+import serialIcon from "@/assets/serial-icon.png";
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -62,7 +64,7 @@ const router = createRouter({
               name: "ble",
               component: () => import("@/views/tools/ble/index.vue"),
               meta: {
-                icon: "🐳",
+                icon: bleIcon,
                 title: "BLE",
                 display: true,
               },
@@ -72,7 +74,7 @@ const router = createRouter({
               name: "serial",
               component: () => import("@/views/tools/serial/index.vue"),
               meta: {
-                icon: "🧵",
+                icon: serialIcon,
                 title: i18n.global.t("menu.serialAssistant"),
                 display: true,
               },

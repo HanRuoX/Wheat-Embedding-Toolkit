@@ -45,6 +45,10 @@ export async function getCurrentDir() {
   return await invoke("get_current_dir");
 }
 
+export async function spawnNewInstance() {
+  return await invoke("spawn_new_instance");
+}
+
 export async function writeAllText(path: string, text: string) {
   return await writeTextFile(path, text);
 }

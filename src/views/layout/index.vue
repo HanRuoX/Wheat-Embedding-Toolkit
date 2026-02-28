@@ -6,7 +6,7 @@
   >
     <aside class="dock-rail">
       <div class="dock-main">
-        <div class="dock-logo">WE</div>
+        <img class="dock-logo" :src="wheatLogo" alt="Wheat Embedding Toolkit" />
         <template v-if="isMenuCollapsed">
           <a-popover
             v-for="section in dockSections"
@@ -25,7 +25,7 @@
                   type="button"
                   @click="to(menu)"
                 >
-                  <span>{{ menu.meta?.icon }}</span>
+                  <NavIcon :icon="String(menu.meta?.icon || '')" :alt="String(menu.meta?.title || '')" />
                   <span>{{ menu.meta?.title }}</span>
                 </button>
               </div>
@@ -36,7 +36,7 @@
               type="button"
               @click="onDockSectionClick(section)"
             >
-              <span class="dock-icon">{{ section.icon }}</span>
+              <NavIcon class="dock-icon" :icon="section.icon" :alt="section.title" size="20px" />
             </button>
           </a-popover>
         </template>
@@ -49,19 +49,34 @@
           type="button"
           @click="switchSection(section)"
         >
-          <span class="dock-icon">{{ section.icon }}</span>
+          <NavIcon class="dock-icon" :icon="section.icon" :alt="section.title" size="20px" />
         </button>
       </div>
       <div class="dock-secondary">
-        <button
-          v-if="settingMenu"
-          class="dock-item"
-          :class="{ active: route.name === settingMenu.name }"
-          type="button"
-          @click="to(settingMenu)"
-        >
-          <span class="dock-icon">{{ settingMenu.meta?.icon || "⚙️" }}</span>
-        </button>
+        <a-tooltip :title="$t('setting.multiWindow')" placement="right">
+          <button
+            class="dock-item"
+            type="button"
+            @click="openNewWindow"
+          >
+            <CopyOutlined class="dock-icon dock-ant-icon" />
+          </button>
+        </a-tooltip>
+        <a-tooltip v-if="settingMenu" :title="String(settingMenu.meta?.title || $t('menu.setting'))" placement="right">
+          <button
+            class="dock-item"
+            :class="{ active: route.name === settingMenu.name }"
+            type="button"
+            @click="to(settingMenu)"
+          >
+            <NavIcon
+              class="dock-icon"
+              :icon="String(settingMenu.meta?.icon || '⚙️')"
+              :alt="String(settingMenu.meta?.title || $t('menu.setting'))"
+              size="20px"
+            />
+          </button>
+        </a-tooltip>
       </div>
       <button
         class="dock-mid-toggle"
@@ -80,7 +95,7 @@
           :key="String(menu.name)"
           @click="to(menu)"
         >
-          <span>{{ menu.meta?.icon }}</span>
+          <NavIcon :icon="String(menu.meta?.icon || '')" :alt="String(menu.meta?.title || '')" />
           <span>{{ menu.meta?.title }}</span>
         </a-menu-item>
       </a-menu>
@@ -92,7 +107,7 @@
     </aside>
     <main class="main-panel">
       <header class="main-header">
-        <h2 class="main-title">{{ route.meta?.title || "Wheat ESP Tools" }}</h2>
+        <h2 class="main-title">{{ route.meta?.title || "Wheat Embedding Toolkit" }}</h2>
         <div id="main-header-actions" class="main-header-actions" />
       </header>
       <section class="main-content">
@@ -107,11 +122,17 @@
 
 <script setup lang="ts">
 import i18n from "@/locales/i18n";
+import esp32Icon from "@/assets/esp32-icon.png";
+import wheatLogo from "@/assets/wheat_logo.png";
 import Terminal from "@/components/Terminal.vue";
+import NavIcon from "@/components/NavIcon.vue";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute, useRouter, RouteRecordRaw } from "vue-router";
 import { storeToRefs } from "pinia";
+import { CopyOutlined } from "@ant-design/icons-vue";
+import { message } from "ant-design-vue";
 import { useToolsStore } from "@/stores/Tool";
+import { spawnNewInstance } from "@/utils/common";
 
 interface DockSection {
   key: string;
@@ -165,7 +186,7 @@ const dockSections = computed<DockSection[]>(() => {
   if (esp32Menus.length > 0) {
     sections.push({
       key: "esp32",
-      icon: "🛠️",
+      icon: esp32Icon,
       title: String(i18n.global.t("menu.esp32Assistant")),
       menus: esp32Menus,
     });
@@ -267,6 +288,16 @@ const to = (data: RouteRecordRaw) => {
   router.push(data.path);
 };
 
+const openNewWindow = async () => {
+  try {
+    await spawnNewInstance();
+  } catch (error) {
+    message.error(
+      error instanceof Error ? error.message : i18n.global.t("setting.multiWindow")
+    );
+  }
+};
+
 const toggleMenuPanel = () => {
   isMenuCollapsed.value = !isMenuCollapsed.value;
   localStorage.setItem(MENU_COLLAPSED_STORAGE_KEY, isMenuCollapsed.value ? "1" : "0");
@@ -365,16 +396,10 @@ onBeforeUnmount(() => {
 }
 
 .dock-logo {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  background: linear-gradient(145deg, var(--accent), var(--accent-strong));
-  color: #f5f8ff;
-  font-weight: 700;
-  font-size: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 40px;
+  height: 40px;
+  display: block;
+  object-fit: contain;
   margin-bottom: 8px;
 }
 
@@ -403,6 +428,12 @@ onBeforeUnmount(() => {
 .dock-icon {
   font-size: 16px;
   line-height: 1;
+}
+
+.dock-ant-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .dock-mid-toggle {

@@ -562,10 +562,26 @@ fn serial_assistant_is_open(
 fn get_current_dir(app_handle: tauri::AppHandle) -> String {
     let path = app_handle.path().app_data_dir().unwrap_or_else(|_| {
         let mut fallback = env::temp_dir();
-        fallback.push("wheat-esp-tools");
+        fallback.push("wheat-embedding-toolkit");
         fallback
     });
     path.display().to_string()
+}
+
+#[tauri::command]
+fn spawn_new_instance() -> Result<(), String> {
+    let current_exe =
+        env::current_exe().map_err(|e| format!("failed to get current executable: {e}"))?;
+
+    let mut command = Command::new(&current_exe);
+    if let Ok(current_dir) = env::current_dir() {
+        command.current_dir(current_dir);
+    }
+
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("failed to spawn new instance: {e}"))
 }
 
 #[tauri::command]
@@ -654,7 +670,7 @@ fn main() {
             let _ = app.get_webview_window("main");
             let app_dir = app.path().app_data_dir().unwrap_or_else(|_| {
                 let mut fallback = env::temp_dir();
-                fallback.push("wheat-esp-tools");
+                fallback.push("wheat-embedding-toolkit");
                 fallback
             });
             if !app_dir.exists() {
@@ -680,6 +696,7 @@ fn main() {
             greet,
             get_serial_port_list,
             get_current_dir,
+            spawn_new_instance,
             open_file_in_explorer,
             open_directory_in_explorer,
             get_file_info,

@@ -42,6 +42,20 @@
             </a-radio-group>
           </div>
         </a-card>
+
+        <a-card class="setting-card" :bordered="false">
+          <div class="setting-item">
+            <div class="setting-copy">
+              <div class="setting-label">{{ $t("setting.multiWindow") }}</div>
+              <div class="setting-description">
+                {{ $t("setting.multiWindowDescription") }}
+              </div>
+            </div>
+            <a-button type="primary" class="setting-control" @click="openNewWindow">
+              {{ $t("setting.openNewWindow") }}
+            </a-button>
+          </div>
+        </a-card>
       </div>
     </div>
   </div>
@@ -50,7 +64,9 @@
 <script setup lang="ts">
 import i18n from "@/locales/i18n";
 import { computed, ref, watch } from "vue";
+import { message } from "ant-design-vue";
 import { usePreferenceStore, type AppTheme } from "@/stores/Preference";
+import { spawnNewInstance } from "@/utils/common";
 
 const preferenceStore = usePreferenceStore();
 const selectedLanguage = ref(preferenceStore.language);
@@ -82,6 +98,16 @@ const changeLanguage = () => {
 
 const changeTheme = () => {
   preferenceStore.setThemeMode(selectedTheme.value);
+};
+
+const openNewWindow = async () => {
+  try {
+    await spawnNewInstance();
+  } catch (error) {
+    message.error(
+      error instanceof Error ? error.message : i18n.global.t("setting.multiWindow")
+    );
+  }
 };
 
 watch(
@@ -174,6 +200,19 @@ watch(
   font-size: 16px;
   color: var(--text-primary);
   font-weight: 600;
+}
+
+.setting-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.setting-description {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  max-width: 420px;
 }
 
 .setting-control {

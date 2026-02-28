@@ -1,6 +1,26 @@
-# Wheat ESP Tools
+# Wheat Embedding Toolkit
 
 [简体中文](./README.md) | English
+
+## Regenerate App Icons
+
+After replacing `public/wheat_logo.png`, run:
+
+```bash
+yarn icons:regen
+```
+
+To use a different source image:
+
+```bash
+bash ./scripts/regenerate-icons.sh /path/to/logo.png
+```
+
+The default output uses a rounded-square background so the app icon looks fuller on macOS. To keep a transparent background:
+
+```bash
+ICON_STYLE=transparent yarn icons:regen
+```
 
 ## General
 ![](images/en-1.png)
