@@ -23,6 +23,20 @@ export async function saveFileDialog() {
   return filePath;
 }
 
+export async function saveTextFileDialog(defaultPath?: string) {
+  const filePath = await save({
+    defaultPath,
+    filters: [
+      {
+        name: "Log",
+        extensions: ["log", "txt"],
+      },
+    ],
+  });
+
+  return filePath;
+}
+
 export async function getSerialPortList() {
   return (await invoke("get_serial_port_list")) as string[];
 }

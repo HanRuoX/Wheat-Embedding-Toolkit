@@ -1,8 +1,58 @@
 <template>
+  <Teleport to="#main-header-actions">
+    <a-popover
+      v-model:open="exportPopoverOpen"
+      trigger="click"
+      placement="bottomRight"
+      @openChange="onExportPopoverOpenChange"
+    >
+      <template #content>
+        <div class="export-popover">
+          <div class="export-popover-title">{{ $t("serial.exportOptions") }}</div>
+          <a-checkbox v-model:checked="exportReceiveHex">{{ $t("serial.displayHex") }}</a-checkbox>
+          <a-checkbox v-model:checked="exportShowTimestamp">{{ $t("serial.displayTime") }}</a-checkbox>
+          <a-checkbox v-model:checked="exportShowTxRx">{{ $t("serial.displayTxRx") }}</a-checkbox>
+          <a-button type="primary" size="small" :disabled="historyRecords.length === 0" @click="confirmExportLogs">
+            {{ $t("serial.exportNow") }}
+          </a-button>
+        </div>
+      </template>
+      <a-button type="default" :disabled="historyRecords.length === 0">
+        {{ $t("serial.export") }}
+      </a-button>
+    </a-popover>
+  </Teleport>
   <div class="serial-page" :class="{ 'is-light': preferenceStore.resolvedTheme === 'light' }">
     <div class="serial-main">
       <div class="left-panel">
         <div class="terminal-wrap">
+          <div v-if="searchBarVisible" class="terminal-search">
+            <a-input
+              ref="searchInputRef"
+              v-model:value="findKeyword"
+              size="small"
+              @pressEnter="onSearchInputEnter"
+            />
+            <a-button
+              class="search-toggle"
+              size="small"
+              :type="searchCaseSensitive ? 'primary' : 'default'"
+              :title="$t('serial.findCaseSensitive')"
+              @click="toggleSearchCaseSensitive"
+            >
+              Aa
+            </a-button>
+            <span class="search-count">
+              {{ currentSearchDisplayIndex }}/{{ searchMatches.length }}
+            </span>
+            <a-button class="search-nav" size="small" :title="$t('serial.findPrev')" @click="jumpToPreviousSearchMatch">
+              ↑
+            </a-button>
+            <a-button class="search-nav" size="small" :title="$t('serial.findNext')" @click="jumpToNextSearchMatch">
+              ↓
+            </a-button>
+            <button class="search-close" type="button" @click="closeSearchBar">×</button>
+          </div>
           <div ref="terminalContainer" class="terminal-view" />
         </div>
         <div class="bottom-bar">
@@ -38,7 +88,6 @@
               :popup-match-select-width="false"
               :dropdown-match-select-width="false"
               popup-class-name="serial-port-dropdown"
-              dropdown-class-name="serial-port-dropdown"
               :title="selectedPort"
               @focus="refreshPorts"
             />
@@ -100,25 +149,20 @@
             <a-checkbox v-model:checked="showTxRx">{{ $t("serial.displayTxRx") }}</a-checkbox>
           </div>
         </a-card>
-
-        <div class="search-row">
-          <a-input v-model:value="findKeyword" @pressEnter="findInLogs" />
-          <a-button type="primary" @click="findInLogs">{{ $t("serial.find") }}</a-button>
-        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { message } from "ant-design-vue";
 import { Terminal } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
 import moment from "moment";
 import "xterm/css/xterm.css";
-import { getSerialPortList } from "@/utils/common";
+import { getSerialPortList, saveTextFileDialog, writeAllText } from "@/utils/common";
 import {
   SerialAssistantEventPayload,
   serialAssistantClose,
@@ -149,9 +193,17 @@ const selectedDataBits = ref("8");
 const selectedStopBits = ref("1");
 const selectedFlowControl = ref("none");
 
+const getStoredBoolean = (key: string, fallback: boolean) => {
+  const value = localStorage.getItem(key);
+  if (value === null) {
+    return fallback;
+  }
+  return value === "1";
+};
+
 const connected = ref(false);
 const sendHex = ref(false);
-const sendNewline = ref(false);
+const sendNewline = ref(getStoredBoolean("serial.sendNewline", true));
 const periodicSend = ref(false);
 const periodicRunning = ref(false);
 const periodicInterval = ref(1000);
@@ -160,11 +212,25 @@ const dtr = ref(false);
 const receiveHex = ref(false);
 const showTimestamp = ref(false);
 const showTxRx = ref(false);
+const exportReceiveHex = ref(false);
+const exportShowTimestamp = ref(false);
+const exportShowTxRx = ref(false);
+const exportPopoverOpen = ref(false);
 const findKeyword = ref("");
+const searchCaseSensitive = ref(false);
+const searchBarVisible = ref(false);
 const activeSearchKeyword = ref("");
+const currentSearchMatchIndex = ref(-1);
 const sendInput = ref("");
 const logEntries = ref<string[]>([]);
 const historyRecords = ref<SerialHistoryRecord[]>([]);
+const searchMatches = ref<SearchMatch[]>([]);
+const searchInputRef = ref<{ focus: () => void } | null>(null);
+type SearchMatch = {
+  lineIndex: number;
+  column: number;
+  length: number;
+};
 
 const baudRateOptions: SelectOption[] = [
   "9600",
@@ -205,10 +271,17 @@ const sendPlaceholder = computed(() =>
 
 const fitAddon = new FitAddon();
 let terminal: Terminal | null = null;
-let periodicTimer: ReturnType<typeof setInterval> | null = null;
+let periodicTimer: ReturnType<typeof setTimeout> | null = null;
 let unlistenSerial: UnlistenFn | null = null;
 let resizeHandler: (() => void) | null = null;
-let rxLineBuffer = "";
+let terminalResizeObserver: ResizeObserver | null = null;
+let periodicRunId = 0;
+const sendInFlight = ref(false);
+let isDisplayLineOpen = false;
+let lastDisplayDirection: "TX" | "RX" | null = null;
+let pendingRxEspColor: string | null = null;
+let renderSearchOccurrenceCursor = 0;
+let pendingSearchScrollFrame: number | null = null;
 
 const getTerminalTheme = (themeMode: ResolvedTheme) =>
   themeMode === "light"
@@ -217,7 +290,9 @@ const getTerminalTheme = (themeMode: ResolvedTheme) =>
         foreground: "#1f2a37",
         cursor: "#2563eb",
         cursorAccent: "#f5f7fb",
-        selectionBackground: "#c9d9ff",
+        selectionForeground: "#111827",
+        selectionBackground: "#ffd24d",
+        selectionInactiveBackground: "#ffd24d",
         black: "#1f2937",
         red: "#b42318",
         green: "#157347",
@@ -240,7 +315,9 @@ const getTerminalTheme = (themeMode: ResolvedTheme) =>
         foreground: "#f2f2f2",
         cursor: "#3a8bff",
         cursorAccent: "#1d1f27",
-        selectionBackground: "#2c3f67",
+        selectionForeground: "#111111",
+        selectionBackground: "#ffb020",
+        selectionInactiveBackground: "#ffb020",
       };
 
 const ansi = {
@@ -256,16 +333,27 @@ const ansi = {
   rx: "\x1b[1;34m",
   searchStart: "\x1b[7m",
   searchEnd: "\x1b[27m",
+  currentSearchStart: "\x1b[48;5;220m\x1b[30m\x1b[1m",
+  currentSearchEnd: "\x1b[49m\x1b[39m\x1b[22m",
 };
 const ansiRegex = /\x1b\[[0-9;]*m/g;
+const espLogHeaderRegex = /^([IWEVD]) \((\d+)\)\s+([^:]+):\s?(.*)$/;
 
 const normalizeAnsiEscapes = (text: string) =>
   text.replace(/\\033\[/g, "\x1b[").replace(/\\x1b\[/gi, "\x1b[");
+
+const hasAnsiEscapes = (text: string) =>
+  /\x1b\[[0-9;]*m/.test(normalizeAnsiEscapes(text));
 
 const bytesToHex = (data: number[]) =>
   data.map((item) => item.toString(16).padStart(2, "0")).join(" ").toUpperCase();
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const getSearchMatcher = (keyword: string, global = true) => {
+  const flags = `${global ? "g" : ""}${searchCaseSensitive.value ? "" : "i"}`;
+  return new RegExp(escapeRegExp(keyword), flags);
+};
 
 const applySearchHighlight = (text: string) => {
   const keyword = activeSearchKeyword.value.trim();
@@ -273,16 +361,145 @@ const applySearchHighlight = (text: string) => {
     return text;
   }
 
-  const matcher = new RegExp(escapeRegExp(keyword), "gi");
+  const matcher = getSearchMatcher(keyword);
   return text
     .split(/(\x1b\[[0-9;]*m)/g)
     .map((part) => {
       if (/^\x1b\[[0-9;]*m$/.test(part)) {
         return part;
       }
-      return part.replace(matcher, (matched) => `${ansi.searchStart}${matched}${ansi.searchEnd}`);
+      return part.replace(matcher, (matched) => {
+        const occurrenceIndex = renderSearchOccurrenceCursor;
+        renderSearchOccurrenceCursor += 1;
+        return occurrenceIndex === currentSearchMatchIndex.value
+          ? `${ansi.currentSearchStart}${matched}${ansi.currentSearchEnd}`
+          : `${ansi.searchStart}${matched}${ansi.searchEnd}`;
+      });
     })
     .join("");
+};
+
+const getEspLevelColor = (level: string) =>
+  level === "I"
+    ? ansi.info
+    : level === "W"
+      ? ansi.warn
+      : level === "E"
+        ? ansi.error
+        : level === "D"
+          ? ansi.debug
+          : ansi.verbose;
+
+const colorizeEspLogLine = (line: string) => {
+  if (!line || hasAnsiEscapes(line)) {
+    return line;
+  }
+
+  const match = line.match(espLogHeaderRegex);
+  if (!match) {
+    return line;
+  }
+
+  const [, level, ms, tag, messageText] = match;
+  const levelColor = getEspLevelColor(level);
+
+  return `${levelColor}${level}${ansi.reset} (${ansi.dim}${ms}${ansi.reset}) ${ansi.tag}${tag}${ansi.reset}${levelColor}: ${messageText}${ansi.reset}`;
+};
+
+const colorizeEspLogText = (text: string) => {
+  const normalizedText = normalizeAnsiEscapes(text);
+  if (!normalizedText) {
+    return normalizedText;
+  }
+
+  return normalizedText
+    .split(/(\r\n|\n|\r)/)
+    .map((segment) => {
+      if (segment === "\r\n" || segment === "\n" || segment === "\r") {
+        pendingRxEspColor = null;
+        return segment;
+      }
+
+      if (!segment) {
+        return segment;
+      }
+
+      if (hasAnsiEscapes(segment)) {
+        return segment;
+      }
+
+      const headerMatch = segment.match(espLogHeaderRegex);
+      if (headerMatch) {
+        const [, level, ms, tag, messageText] = headerMatch;
+        const levelColor = getEspLevelColor(level);
+        pendingRxEspColor = levelColor;
+        return `${levelColor}${level}${ansi.reset} (${ansi.dim}${ms}${ansi.reset}) ${ansi.tag}${tag}${ansi.reset}${levelColor}: ${messageText}${ansi.reset}`;
+      }
+
+      if (pendingRxEspColor) {
+        return `${pendingRxEspColor}${segment}${ansi.reset}`;
+      }
+
+      return segment;
+    })
+    .join("");
+};
+
+const stripAnsiForExport = (text: string) => normalizeAnsiEscapes(text).replace(ansiRegex, "");
+
+const buildExportPrefix = (record: SerialHistoryRecord) => {
+  const parts: string[] = [];
+
+  if (exportShowTimestamp.value) {
+    parts.push(`[${moment(record.timestamp).format("HH:mm:ss.SSS")}]`);
+  }
+
+  if (record.kind === "data" && record.direction && exportShowTxRx.value) {
+    parts.push(`[${record.direction}]`);
+  }
+
+  if (record.kind === "info") {
+    parts.push("[INFO]");
+  }
+
+  if (record.kind === "error") {
+    parts.push("[ERROR]");
+  }
+
+  return parts.join(" ");
+};
+
+const formatExportRecord = (record: SerialHistoryRecord) => {
+  const prefix = buildExportPrefix(record);
+  const content =
+    record.kind === "data" && exportReceiveHex.value ? record.hex : stripAnsiForExport(record.text);
+  const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const lines = normalized.split("\n");
+
+  if (lines.length === 0) {
+    return prefix;
+  }
+
+  if (!prefix) {
+    return lines.join("\n");
+  }
+
+  return lines
+    .map((line, index) => (index === 0 ? `${prefix} ${line}` : `${" ".repeat(prefix.length + 1)}${line}`))
+    .join("\n");
+};
+
+const buildExportContent = () => {
+  const exportedAt = moment().format("YYYY-MM-DD HH:mm:ss");
+  const header = [
+    `# Serial Assistant Export`,
+    `# Exported At: ${exportedAt}`,
+    `# Port: ${selectedPort.value ?? "-"}`,
+    `# Baud Rate: ${selectedBaudRate.value}`,
+    "",
+  ];
+
+  return `${header.join("\n")}${historyRecords.value.map((record) => formatExportRecord(record)).join("\n")}\n`;
 };
 
 const parseHexInput = (value: string): number[] => {
@@ -328,6 +545,235 @@ const shouldStickToBottom = () => {
   return buffer.baseY - buffer.viewportY <= 1;
 };
 
+const fitTerminal = () => {
+  if (!terminal || !terminalContainer.value) {
+    return;
+  }
+
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      fitAddon.fit();
+      terminal.scrollToBottom();
+    });
+  });
+};
+
+const focusSearchInput = () => {
+  nextTick(() => {
+    searchInputRef.value?.focus?.();
+    const input = document.querySelector(".terminal-search .ant-input") as HTMLInputElement | null;
+    input?.select();
+  });
+};
+
+const openSearchBar = () => {
+  searchBarVisible.value = true;
+  focusSearchInput();
+};
+
+const openSearchBarWithInitialKeyword = (keyword?: string) => {
+  openSearchBar();
+  const normalizedKeyword = (keyword ?? "").trim();
+  if (!normalizedKeyword) {
+    return;
+  }
+  if (findKeyword.value !== normalizedKeyword) {
+    findKeyword.value = normalizedKeyword;
+    return;
+  }
+  findKeyword.value = normalizedKeyword;
+  updateSearchResults(normalizedKeyword, true);
+};
+
+const closeSearchBar = () => {
+  searchBarVisible.value = false;
+  activeSearchKeyword.value = "";
+  currentSearchMatchIndex.value = -1;
+  replayHistory();
+};
+
+const updateSearchResults = (keyword: string, resetCurrent = false) => {
+  const normalizedKeyword = keyword.trim();
+  if (!normalizedKeyword) {
+    activeSearchKeyword.value = "";
+    currentSearchMatchIndex.value = -1;
+    searchMatches.value = [];
+    replayHistory();
+    return;
+  }
+
+  const keywordChanged = normalizedKeyword !== activeSearchKeyword.value;
+  activeSearchKeyword.value = normalizedKeyword;
+  refreshSearchMatches();
+  if (searchMatches.value.length === 0) {
+    currentSearchMatchIndex.value = -1;
+    replayHistory();
+    return;
+  }
+
+  if (resetCurrent || keywordChanged) {
+    currentSearchMatchIndex.value = 0;
+  } else if (currentSearchMatchIndex.value >= searchMatches.value.length) {
+    currentSearchMatchIndex.value = 0;
+  }
+
+  replayHistory();
+};
+
+const getTerminalSearchMatches = (keyword: string) => {
+  if (!terminal) {
+    return [] as SearchMatch[];
+  }
+
+  const normalizedKeyword = keyword.trim();
+  if (!normalizedKeyword) {
+    return [] as SearchMatch[];
+  }
+
+  const matcher = getSearchMatcher(normalizedKeyword);
+  const matches: SearchMatch[] = [];
+  const buffer = terminal.buffer.active;
+
+  for (let lineIndex = 0; lineIndex < buffer.length; lineIndex += 1) {
+    const line = buffer.getLine(lineIndex)?.translateToString(true) ?? "";
+    matcher.lastIndex = 0;
+    let matched: RegExpExecArray | null = null;
+    while ((matched = matcher.exec(line)) !== null) {
+      matches.push({
+        lineIndex,
+        column: matched.index,
+        length: matched[0].length,
+      });
+      if (matched[0].length === 0) {
+        matcher.lastIndex += 1;
+      }
+    }
+  }
+
+  return matches;
+};
+
+const currentSearchDisplayIndex = computed(() =>
+  searchMatches.value.length === 0 || currentSearchMatchIndex.value < 0 ? 0 : currentSearchMatchIndex.value + 1
+);
+
+const refreshSearchMatches = () => {
+  searchMatches.value = getTerminalSearchMatches(activeSearchKeyword.value || findKeyword.value);
+};
+
+const selectSearchMatch = (match: SearchMatch) => {
+  if (!terminal) {
+    return;
+  }
+
+  if (pendingSearchScrollFrame !== null) {
+    cancelAnimationFrame(pendingSearchScrollFrame);
+  }
+
+  const targetLine = Math.max(match.lineIndex - 1, 0);
+  pendingSearchScrollFrame = requestAnimationFrame(() => {
+    terminal?.scrollToLine(targetLine);
+    pendingSearchScrollFrame = null;
+  });
+};
+
+const syncCurrentSearchSelection = () => {
+  if (!activeSearchKeyword.value.trim()) {
+    currentSearchMatchIndex.value = -1;
+    searchMatches.value = [];
+    return;
+  }
+
+  if (searchMatches.value.length === 0) {
+    currentSearchMatchIndex.value = -1;
+    return;
+  }
+
+  if (currentSearchMatchIndex.value < 0) {
+    return;
+  }
+
+  const boundedIndex = Math.min(Math.max(currentSearchMatchIndex.value, 0), searchMatches.value.length - 1);
+  currentSearchMatchIndex.value = boundedIndex;
+  selectSearchMatch(searchMatches.value[boundedIndex]);
+};
+
+const moveSearchMatch = (step: 1 | -1) => {
+  const keyword = activeSearchKeyword.value.trim() || findKeyword.value.trim();
+  if (!keyword) {
+    message.warning(i18n.global.t("serial.findKeywordRequired"));
+    return;
+  }
+
+  activeSearchKeyword.value = keyword;
+  refreshSearchMatches();
+  if (searchMatches.value.length === 0) {
+    currentSearchMatchIndex.value = -1;
+    replayHistory();
+    message.info(i18n.global.t("serial.findNotFound"));
+    return;
+  }
+
+  if (currentSearchMatchIndex.value < 0) {
+    currentSearchMatchIndex.value = step > 0 ? 0 : searchMatches.value.length - 1;
+  } else {
+    currentSearchMatchIndex.value =
+      (currentSearchMatchIndex.value + step + searchMatches.value.length) % searchMatches.value.length;
+  }
+
+  replayHistory();
+};
+
+const jumpToNextSearchMatch = () => {
+  moveSearchMatch(1);
+};
+
+const jumpToPreviousSearchMatch = () => {
+  moveSearchMatch(-1);
+};
+
+const toggleSearchCaseSensitive = () => {
+  searchCaseSensitive.value = !searchCaseSensitive.value;
+  if (!searchBarVisible.value) {
+    openSearchBar();
+  }
+  if (!activeSearchKeyword.value.trim() && !findKeyword.value.trim()) {
+    return;
+  }
+  currentSearchMatchIndex.value = -1;
+  replayHistory();
+  if (findKeyword.value.trim()) {
+    activeSearchKeyword.value = findKeyword.value.trim();
+    jumpToNextSearchMatch();
+  }
+};
+
+const onSearchInputEnter = (event: KeyboardEvent) => {
+  if (event.shiftKey) {
+    jumpToPreviousSearchMatch();
+    return;
+  }
+  jumpToNextSearchMatch();
+};
+
+const onWindowKeydown = (event: KeyboardEvent) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
+    event.preventDefault();
+    const selectedText = terminal?.getSelection()?.trim() ?? "";
+    openSearchBarWithInitialKeyword(selectedText);
+    return;
+  }
+
+  if (!searchBarVisible.value) {
+    return;
+  }
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeSearchBar();
+  }
+};
+
 const writeRaw = (text: string) => {
   if (!terminal || !text) {
     return;
@@ -338,6 +784,7 @@ const writeRaw = (text: string) => {
     terminal.scrollToBottom();
   }
   splitAndSave(text);
+  isDisplayLineOpen = !/[\r\n]$/.test(text);
 };
 
 const writeLine = (text: string) => {
@@ -350,50 +797,19 @@ const writeLine = (text: string) => {
     terminal.scrollToBottom();
   }
   splitAndSave(text);
+  isDisplayLineOpen = false;
 };
 
-const colorizeEspLogLine = (line: string) => {
-  const match = line.match(/^([IWEVD]) \((\d+)\)\s+([^:]+):\s?(.*)$/);
-  if (!match) {
-    return line;
-  }
-
-  const [, level, ms, tag, messageText] = match;
-  const levelColor =
-    level === "I"
-      ? ansi.info
-      : level === "W"
-        ? ansi.warn
-        : level === "E"
-          ? ansi.error
-          : level === "D"
-            ? ansi.debug
-            : ansi.verbose;
-
-  return `${levelColor}${level}${ansi.reset} (${ansi.dim}${ms}${ansi.reset}) ${ansi.tag}${tag}${ansi.reset}: ${messageText}`;
-};
-
-const formatDisplayLine = (direction: "TX" | "RX", line: string, timestamp: number) => {
-  const prefix = formatPrefix(direction, timestamp);
-  const coloredLine = colorizeEspLogLine(line);
-  if (!prefix) {
-    return coloredLine;
-  }
-  return `${prefix}${coloredLine}`;
-};
-
-const writeParsedRxText = (text: string, timestamp: number) => {
-  if (!text) {
+const startNewDisplayLineIfNeeded = () => {
+  if (!terminal || !isDisplayLineOpen) {
     return;
   }
-  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  const merged = rxLineBuffer + normalized;
-  const lines = merged.split("\n");
-  rxLineBuffer = lines.pop() ?? "";
-
-  lines.forEach((line) => {
-    writeLine(applySearchHighlight(formatDisplayLine("RX", line, timestamp)));
-  });
+  const stickToBottom = shouldStickToBottom();
+  terminal.write("\r\n");
+  if (stickToBottom) {
+    terminal.scrollToBottom();
+  }
+  isDisplayLineOpen = false;
 };
 
 const formatPrefix = (direction: "TX" | "RX", timestamp = Date.now()) => {
@@ -406,6 +822,10 @@ const formatPrefix = (direction: "TX" | "RX", timestamp = Date.now()) => {
     prefix += `${ioColor}[${direction}]${ansi.reset} `;
   }
   return prefix;
+};
+
+const shouldRenderRecordOnOwnLine = () => {
+  return receiveHex.value || showTimestamp.value || showTxRx.value;
 };
 
 const renderHistoryRecord = (record: SerialHistoryRecord) => {
@@ -423,26 +843,40 @@ const renderHistoryRecord = (record: SerialHistoryRecord) => {
     return;
   }
 
-  if (record.direction === "TX" && !showTxRx.value && !showTimestamp.value && !receiveHex.value) {
+  const prefix = formatPrefix(record.direction, record.timestamp);
+  const displayText =
+    record.direction === "RX"
+      ? applySearchHighlight(`${prefix}${colorizeEspLogText(record.text)}`)
+      : applySearchHighlight(`${prefix}${normalizeAnsiEscapes(record.text)}`);
+  if (receiveHex.value) {
+    startNewDisplayLineIfNeeded();
+    writeLine(applySearchHighlight(`${prefix}${record.hex}`));
+    lastDisplayDirection = record.direction;
     return;
   }
 
-  const prefix = formatPrefix(record.direction, record.timestamp);
-  if (receiveHex.value) {
-    writeLine(applySearchHighlight(`${prefix}${record.hex}`));
+  if (shouldRenderRecordOnOwnLine()) {
+    startNewDisplayLineIfNeeded();
+    if (record.direction === "RX") {
+      writeLine(displayText);
+      lastDisplayDirection = "RX";
+      return;
+    }
+
+    writeLine(displayText);
+    lastDisplayDirection = "TX";
     return;
   }
 
   if (record.direction === "RX") {
-    writeParsedRxText(record.text, record.timestamp);
+    writeRaw(displayText);
+    lastDisplayDirection = "RX";
     return;
   }
 
-  record.text
-    .replace(/\r\n/g, "\n")
-    .split("\n")
-    .filter((line) => line.length > 0)
-    .forEach((line) => writeLine(applySearchHighlight(`${prefix}${line}`)));
+  startNewDisplayLineIfNeeded();
+  writeRaw(displayText);
+  lastDisplayDirection = "TX";
 };
 
 const appendHistoryRecord = (record: SerialHistoryRecord) => {
@@ -458,10 +892,14 @@ const replayHistory = () => {
   }
   terminal.clear();
   logEntries.value = [];
-  rxLineBuffer = "";
+  isDisplayLineOpen = false;
+  lastDisplayDirection = null;
+  pendingRxEspColor = null;
+  renderSearchOccurrenceCursor = 0;
   historyRecords.value.forEach((record) => {
     renderHistoryRecord(record);
   });
+  syncCurrentSearchSelection();
 };
 
 const appendLineEnding = (data: number[]) => {
@@ -485,11 +923,32 @@ const refreshPorts = async () => {
 };
 
 const stopPeriodicSend = () => {
+  periodicRunId += 1;
   if (periodicTimer) {
-    clearInterval(periodicTimer);
+    clearTimeout(periodicTimer);
     periodicTimer = null;
   }
   periodicRunning.value = false;
+};
+
+const scheduleNextPeriodicSend = (runId: number) => {
+  if (!periodicRunning.value || runId !== periodicRunId || !periodicSend.value || !connected.value) {
+    return;
+  }
+
+  const interval = Math.max(10, Number(periodicInterval.value) || 1000);
+  periodicTimer = setTimeout(async () => {
+    if (runId !== periodicRunId || !periodicRunning.value) {
+      return;
+    }
+
+    await sendData(true);
+
+    if (runId !== periodicRunId || !periodicRunning.value) {
+      return;
+    }
+    scheduleNextPeriodicSend(runId);
+  }, interval);
 };
 
 const startPeriodicSend = () => {
@@ -497,12 +956,15 @@ const startPeriodicSend = () => {
   if (!periodicSend.value || !connected.value) {
     return;
   }
-  const interval = Math.max(10, Number(periodicInterval.value) || 1000);
+  const runId = periodicRunId;
   periodicRunning.value = true;
-  void sendData(true);
-  periodicTimer = setInterval(() => {
-    void sendData(true);
-  }, interval);
+  void (async () => {
+    await sendData(true);
+    if (runId !== periodicRunId || !periodicRunning.value) {
+      return;
+    }
+    scheduleNextPeriodicSend(runId);
+  })();
 };
 
 const applySignals = async (silent = true) => {
@@ -519,6 +981,11 @@ const applySignals = async (silent = true) => {
 };
 
 const sendData = async (fromTimer = false) => {
+  if (sendInFlight.value) {
+    return;
+  }
+
+  sendInFlight.value = true;
   try {
     if (!connected.value) {
       if (!fromTimer) {
@@ -542,8 +1009,6 @@ const sendData = async (fromTimer = false) => {
       return;
     }
 
-    await serialAssistantSend(payload);
-
     const txRecord: SerialHistoryRecord = {
       kind: "data",
       direction: "TX",
@@ -553,10 +1018,18 @@ const sendData = async (fromTimer = false) => {
     };
     appendHistoryRecord(txRecord);
     renderHistoryRecord(txRecord);
+    syncCurrentSearchSelection();
+
+    await serialAssistantSend(payload);
   } catch (error) {
+    if (fromTimer) {
+      stopPeriodicSend();
+    }
     if (!fromTimer) {
       message.error(String(error));
     }
+  } finally {
+    sendInFlight.value = false;
   }
 };
 
@@ -586,22 +1059,63 @@ const onSendButtonClick = async () => {
 };
 
 const findInLogs = () => {
+  if (!searchBarVisible.value) {
+    openSearchBar();
+  }
   const keyword = findKeyword.value.trim();
   if (!keyword) {
     message.warning(i18n.global.t("serial.findKeywordRequired"));
     return;
   }
-  const keywordLower = keyword.toLowerCase();
-  const count = logEntries.value.filter((line) => line.toLowerCase().includes(keywordLower)).length;
-  if (count === 0) {
-    activeSearchKeyword.value = "";
-    replayHistory();
+  updateSearchResults(keyword);
+  const matches = searchMatches.value;
+  if (matches.length === 0) {
     message.info(i18n.global.t("serial.findNotFound"));
     return;
   }
-  activeSearchKeyword.value = keyword;
-  replayHistory();
-  message.success(i18n.global.t("serial.findResult", { count }));
+  jumpToNextSearchMatch();
+  message.success(i18n.global.t("serial.findResult", { count: matches.length }));
+};
+
+const exportLogs = async () => {
+  if (historyRecords.value.length === 0) {
+    message.warning(i18n.global.t("serial.exportEmpty"));
+    return;
+  }
+
+  const portName = (selectedPort.value ?? "serial")
+    .replace(/[\\/:"*?<>|]+/g, "_")
+    .replace(/\s+/g, "_");
+  const defaultPath = `${portName}-${moment().format("YYYYMMDD-HHmmss")}.log`;
+
+  try {
+    const filePath = await saveTextFileDialog(defaultPath);
+    if (!filePath) {
+      return;
+    }
+    await writeAllText(filePath, buildExportContent());
+    message.success(i18n.global.t("serial.exportSuccess"));
+    exportPopoverOpen.value = false;
+  } catch (error) {
+    message.error(String(error));
+  }
+};
+
+const syncExportOptionsFromDisplay = () => {
+  exportReceiveHex.value = receiveHex.value;
+  exportShowTimestamp.value = showTimestamp.value;
+  exportShowTxRx.value = showTxRx.value;
+};
+
+const onExportPopoverOpenChange = (open: boolean) => {
+  exportPopoverOpen.value = open;
+  if (open) {
+    syncExportOptionsFromDisplay();
+  }
+};
+
+const confirmExportLogs = async () => {
+  await exportLogs();
 };
 
 const clearTerminal = () => {
@@ -609,7 +1123,11 @@ const clearTerminal = () => {
   logEntries.value = [];
   historyRecords.value = [];
   activeSearchKeyword.value = "";
-  rxLineBuffer = "";
+  currentSearchMatchIndex.value = -1;
+  searchMatches.value = [];
+  isDisplayLineOpen = false;
+  lastDisplayDirection = null;
+  pendingRxEspColor = null;
 };
 
 const handleSerialEvent = (payload: SerialAssistantEventPayload) => {
@@ -632,6 +1150,7 @@ const handleSerialEvent = (payload: SerialAssistantEventPayload) => {
     };
     appendHistoryRecord(rxRecord);
     renderHistoryRecord(rxRecord);
+    syncCurrentSearchSelection();
     return;
   }
 
@@ -644,6 +1163,7 @@ const handleSerialEvent = (payload: SerialAssistantEventPayload) => {
     };
     appendHistoryRecord(errorRecord);
     renderHistoryRecord(errorRecord);
+    syncCurrentSearchSelection();
     connected.value = false;
     stopPeriodicSend();
     return;
@@ -656,13 +1176,14 @@ const handleSerialEvent = (payload: SerialAssistantEventPayload) => {
   };
   appendHistoryRecord(infoRecord);
   renderHistoryRecord(infoRecord);
+  syncCurrentSearchSelection();
 };
 
 const toggleConnection = async () => {
   try {
     if (connected.value) {
-      await serialAssistantClose();
       connected.value = false;
+      await serialAssistantClose();
       stopPeriodicSend();
       return;
     }
@@ -693,6 +1214,17 @@ const toggleConnection = async () => {
 
 watch([rts, dtr], () => {
   void applySignals();
+});
+
+watch(sendNewline, (value) => {
+  localStorage.setItem("serial.sendNewline", value ? "1" : "0");
+});
+
+watch(findKeyword, (value) => {
+  if (!searchBarVisible.value) {
+    return;
+  }
+  updateSearchResults(value, true);
 });
 
 watch([periodicSend, connected], () => {
@@ -743,6 +1275,7 @@ watch(
 );
 
 onMounted(async () => {
+  syncExportOptionsFromDisplay();
   terminal = new Terminal({
     fontSize: 14,
     convertEol: true,
@@ -754,11 +1287,16 @@ onMounted(async () => {
   if (terminalContainer.value) {
     terminal.loadAddon(fitAddon);
     terminal.open(terminalContainer.value);
-    fitAddon.fit();
+    fitTerminal();
+    terminalResizeObserver = new ResizeObserver(() => {
+      fitTerminal();
+    });
+    terminalResizeObserver.observe(terminalContainer.value);
   }
 
-  resizeHandler = () => fitAddon.fit();
+  resizeHandler = () => fitTerminal();
   window.addEventListener("resize", resizeHandler);
+  window.addEventListener("keydown", onWindowKeydown);
 
   await refreshPorts();
   connected.value = await serialAssistantIsOpen();
@@ -769,14 +1307,23 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(async () => {
-  rxLineBuffer = "";
   stopPeriodicSend();
+  isDisplayLineOpen = false;
+  lastDisplayDirection = null;
+  pendingRxEspColor = null;
+  if (pendingSearchScrollFrame !== null) {
+    cancelAnimationFrame(pendingSearchScrollFrame);
+    pendingSearchScrollFrame = null;
+  }
   if (unlistenSerial) {
     await unlistenSerial();
   }
   if (resizeHandler) {
     window.removeEventListener("resize", resizeHandler);
   }
+  window.removeEventListener("keydown", onWindowKeydown);
+  terminalResizeObserver?.disconnect();
+  terminalResizeObserver = null;
   if (connected.value) {
     try {
       await serialAssistantClose();
@@ -842,6 +1389,7 @@ onBeforeUnmount(async () => {
 }
 
 .terminal-wrap {
+  position: relative;
   min-width: 0;
   min-height: 280px;
   flex: 1;
@@ -851,9 +1399,50 @@ onBeforeUnmount(async () => {
   overflow: hidden;
 }
 
+.terminal-search {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--serial-panel-border, rgba(255, 255, 255, 0.08));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--serial-card-bg, #141824) 94%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+}
+
+.terminal-search :deep(.ant-input) {
+  width: 180px;
+  min-height: 28px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+.search-close {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--serial-muted-text, #cfd5e4);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.search-close:hover {
+  background: rgba(148, 163, 184, 0.14);
+}
+
 .terminal-view {
   width: 100%;
   height: 100%;
+  padding-bottom: 6px;
+  box-sizing: border-box;
   overflow: hidden;
 }
 
@@ -983,27 +1572,42 @@ onBeforeUnmount(async () => {
   font-size: 12px;
 }
 
-.search-row {
+.search-toggle {
+  width: 34px;
+  min-width: 34px;
+  height: 28px;
+  padding: 0;
+  font-size: 12px;
+}
+
+.search-count {
+  min-width: 38px;
+  color: var(--serial-muted-text, #cfd5e4);
+  font-size: 11px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.search-nav {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.export-popover {
+  min-width: 160px;
   display: flex;
-  gap: 6px;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.search-row :deep(.ant-input) {
-  background: var(--serial-search-input-bg, #0b0f17) !important;
-  color: var(--serial-input-text, #edf2ff) !important;
-}
-
-.search-row :deep(.ant-input::placeholder) {
-  color: var(--serial-input-placeholder, #9ca6bd) !important;
-}
-
-.search-row :deep(.ant-input:hover),
-.search-row :deep(.ant-input:focus) {
-  background: var(--serial-search-input-hover-bg, #090d15) !important;
-}
-
-.search-row .ant-btn {
-  width: 64px;
+.export-popover-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--serial-card-title, #eaf0ff);
 }
 
 .bottom-bar {

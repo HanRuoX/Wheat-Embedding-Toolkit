@@ -16,6 +16,7 @@ import { theme } from "ant-design-vue";
 import zhCN from "ant-design-vue/es/locale/zh_CN";
 import enUS from "ant-design-vue/es/locale/en_US";
 import i18n from "@/locales/i18n";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { usePreferenceStore } from "@/stores/Preference";
 
 const preferenceStore = usePreferenceStore();
@@ -32,6 +33,17 @@ const antThemeAlgorithm = computed(() =>
 
 let stopSystemThemeListener: (() => void) | null = null;
 
+const syncNativeWindowTheme = async (themeMode: "light" | "dark" | null) => {
+  if (typeof window === "undefined" || !(window as Record<string, unknown>).__TAURI_INTERNALS__) {
+    return;
+  }
+  try {
+    await getCurrentWindow().setTheme(themeMode);
+  } catch (error) {
+    console.warn("Failed to sync native window theme:", error);
+  }
+};
+
 watch(
   () => preferenceStore.language,
   (language) => {
@@ -41,9 +53,10 @@ watch(
 );
 
 watch(
-  () => preferenceStore.resolvedTheme,
-  (themeMode) => {
-    document.documentElement.setAttribute("data-theme", themeMode);
+  [() => preferenceStore.themeMode, () => preferenceStore.resolvedTheme],
+  ([themeMode, resolvedTheme]) => {
+    document.documentElement.setAttribute("data-theme", resolvedTheme);
+    void syncNativeWindowTheme(themeMode === "system" ? null : resolvedTheme);
   },
   { immediate: true }
 );

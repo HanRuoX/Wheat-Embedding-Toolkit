@@ -93,6 +93,7 @@
     <main class="main-panel">
       <header class="main-header">
         <h2 class="main-title">{{ route.meta?.title || "Wheat ESP Tools" }}</h2>
+        <div id="main-header-actions" class="main-header-actions" />
       </header>
       <section class="main-content">
         <router-view />
@@ -555,6 +556,14 @@ onBeforeUnmount(() => {
   font-size: 18px;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.main-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
 .main-content {

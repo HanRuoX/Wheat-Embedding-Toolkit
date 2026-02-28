@@ -41,7 +41,7 @@
       {
         "center": true,
         "dragDropEnabled":true,
-        "theme": "Dark",
+        "theme": null,
         "height": 800,
         "minHeight": 800,
         "title": "Wheat ESP Tools",

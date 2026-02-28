@@ -12,10 +12,14 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::process::Command;
-use std::sync::mpsc::{self, Sender, TryRecvError};
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{self, Sender, SyncSender, TryRecvError};
+use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 use tauri::{Emitter, Listener, Manager as _};
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
@@ -41,9 +45,11 @@ struct FileInfo {
 }
 
 struct SerialSession {
-    writer: Arc<Mutex<Box<dyn serialport::SerialPort>>>,
+    command_tx: SyncSender<SerialCommand>,
     stop_tx: Sender<()>,
+    closing: Arc<AtomicBool>,
     reader_handle: Option<thread::JoinHandle<()>>,
+    writer_handle: Option<thread::JoinHandle<()>>,
 }
 
 #[derive(Default)]
@@ -56,6 +62,19 @@ struct SerialAssistantEvent {
     kind: String,
     text: String,
     hex: String,
+}
+
+enum SerialCommand {
+    Send {
+        data: Vec<u8>,
+        response_tx: Sender<Result<usize, String>>,
+    },
+    SetSignals {
+        rts: bool,
+        dtr: bool,
+        response_tx: Sender<Result<(), String>>,
+    },
+    Shutdown,
 }
 
 impl SerialAssistantEvent {
@@ -127,7 +146,7 @@ fn parse_flow_control(flow_control: &str) -> Result<FlowControl, String> {
 }
 
 fn close_serial_session(state: &SerialAssistantState, label: &str) -> Result<(), String> {
-    let mut session = {
+    let session = {
         let mut sessions = state
             .sessions
             .lock()
@@ -135,14 +154,65 @@ fn close_serial_session(state: &SerialAssistantState, label: &str) -> Result<(),
         sessions.remove(label)
     };
 
-    if let Some(session) = session.as_mut() {
-        let _ = session.stop_tx.send(());
-        if let Some(handle) = session.reader_handle.take() {
-            let _ = handle.join();
-        }
+    if let Some(session) = session {
+        shutdown_serial_session(session, true);
     }
 
     Ok(())
+}
+
+fn shutdown_serial_session(mut session: SerialSession, wait_for_threads: bool) {
+    session.closing.store(true, Ordering::SeqCst);
+    let _ = session.command_tx.send(SerialCommand::Shutdown);
+    let _ = session.stop_tx.send(());
+
+    let writer_handle = session.writer_handle.take();
+    let reader_handle = session.reader_handle.take();
+
+    if wait_for_threads {
+        if let Some(handle) = writer_handle {
+            let _ = handle.join();
+        }
+        if let Some(handle) = reader_handle {
+            let _ = handle.join();
+        }
+        return;
+    }
+
+    thread::spawn(move || {
+        if let Some(handle) = writer_handle {
+            let _ = handle.join();
+        }
+        if let Some(handle) = reader_handle {
+            let _ = handle.join();
+        }
+    });
+}
+
+fn wait_for_output_drain(
+    writer_port: &mut Box<dyn serialport::SerialPort>,
+    closing: &AtomicBool,
+) -> Result<(), String> {
+    let start = Instant::now();
+    let max_wait = Duration::from_millis(300);
+
+    loop {
+        if closing.load(Ordering::SeqCst) {
+            return Err("serial is closing".to_string());
+        }
+
+        match writer_port.bytes_to_write() {
+            Ok(0) => return Ok(()),
+            Ok(_) => {}
+            Err(_) => return Ok(()),
+        }
+
+        if start.elapsed() >= max_wait {
+            return Ok(());
+        }
+
+        thread::sleep(Duration::from_millis(2));
+    }
 }
 
 async fn get_central(manager: &Manager) -> Result<Adapter, String> {
@@ -301,8 +371,11 @@ fn serial_assistant_open(
     let mut reader_port = serial
         .try_clone()
         .map_err(|e| format!("failed to clone serial port: {e}"))?;
-    let writer = Arc::new(Mutex::new(serial));
+    let mut writer_port = serial;
+    let (command_tx, command_rx) = mpsc::sync_channel::<SerialCommand>(1);
     let (stop_tx, stop_rx) = mpsc::channel();
+    let closing = Arc::new(AtomicBool::new(false));
+    let writer_closing = Arc::clone(&closing);
     let cloned_window = window.clone();
     let port_for_reader = port.clone();
 
@@ -332,6 +405,38 @@ fn serial_assistant_open(
         }
     });
 
+    let writer_handle = thread::spawn(move || {
+        while let Ok(command) = command_rx.recv() {
+            match command {
+                SerialCommand::Send { data, response_tx } => {
+                    let result = writer_port
+                        .write_all(&data)
+                        .map_err(|e| format!("failed to write serial data: {e}"))
+                        .and_then(|_| wait_for_output_drain(&mut writer_port, writer_closing.as_ref()))
+                        .map(|_| data.len())
+                        .map_err(|e| e.to_string());
+                    let _ = response_tx.send(result);
+                }
+                SerialCommand::SetSignals {
+                    rts,
+                    dtr,
+                    response_tx,
+                } => {
+                    let result = writer_port
+                        .write_request_to_send(rts)
+                        .map_err(|e| format!("failed to set RTS: {e}"))
+                        .and_then(|_| {
+                            writer_port
+                                .write_data_terminal_ready(dtr)
+                                .map_err(|e| format!("failed to set DTR: {e}"))
+                        });
+                    let _ = response_tx.send(result);
+                }
+                SerialCommand::Shutdown => break,
+            }
+        }
+    });
+
     {
         let mut sessions = state
             .sessions
@@ -340,9 +445,11 @@ fn serial_assistant_open(
         sessions.insert(
             window.label().to_string(),
             SerialSession {
-                writer,
+                command_tx,
                 stop_tx,
+                closing,
                 reader_handle: Some(reader_handle),
+                writer_handle: Some(writer_handle),
             },
         );
     }
@@ -361,7 +468,7 @@ fn serial_assistant_set_signals(
     rts: bool,
     dtr: bool,
 ) -> Result<(), String> {
-    let writer = {
+    let command_tx = {
         let sessions = state
             .sessions
             .lock()
@@ -369,19 +476,21 @@ fn serial_assistant_set_signals(
         let session = sessions
             .get(window.label())
             .ok_or_else(|| "serial is not connected".to_string())?;
-        Arc::clone(&session.writer)
+        session.command_tx.clone()
     };
 
-    let mut writer = writer
-        .lock()
-        .map_err(|_| "failed to lock serial writer".to_string())?;
-    writer
-        .write_request_to_send(rts)
-        .map_err(|e| format!("failed to set RTS: {e}"))?;
-    writer
-        .write_data_terminal_ready(dtr)
-        .map_err(|e| format!("failed to set DTR: {e}"))?;
-    Ok(())
+    let (response_tx, response_rx) = mpsc::channel();
+    command_tx
+        .send(SerialCommand::SetSignals {
+            rts,
+            dtr,
+            response_tx,
+        })
+        .map_err(|_| "serial writer is unavailable".to_string())?;
+
+    response_rx
+        .recv()
+        .map_err(|_| "serial writer did not respond".to_string())?
 }
 
 #[tauri::command]
@@ -394,7 +503,7 @@ fn serial_assistant_send(
         return Ok(0);
     }
 
-    let writer = {
+    let command_tx = {
         let sessions = state
             .sessions
             .lock()
@@ -402,20 +511,17 @@ fn serial_assistant_send(
         let session = sessions
             .get(window.label())
             .ok_or_else(|| "serial is not connected".to_string())?;
-        Arc::clone(&session.writer)
+        session.command_tx.clone()
     };
 
-    let mut writer = writer
-        .lock()
-        .map_err(|_| "failed to lock serial writer".to_string())?;
-    writer
-        .write_all(&data)
-        .map_err(|e| format!("failed to write serial data: {e}"))?;
-    writer
-        .flush()
-        .map_err(|e| format!("failed to flush serial data: {e}"))?;
+    let (response_tx, response_rx) = mpsc::channel();
+    command_tx
+        .send(SerialCommand::Send { data, response_tx })
+        .map_err(|_| "serial writer is unavailable".to_string())?;
 
-    Ok(data.len())
+    response_rx
+        .recv()
+        .map_err(|_| "serial writer did not respond".to_string())?
 }
 
 #[tauri::command]
@@ -423,7 +529,16 @@ fn serial_assistant_close(
     window: tauri::Window,
     state: tauri::State<SerialAssistantState>,
 ) -> Result<(), String> {
-    close_serial_session(&state, window.label())?;
+    let session = {
+        let mut sessions = state
+            .sessions
+            .lock()
+            .map_err(|_| "failed to lock serial sessions".to_string())?;
+        sessions.remove(window.label())
+    };
+    if let Some(session) = session {
+        shutdown_serial_session(session, false);
+    }
     let _ = window.emit(
         "serial_assistant_event",
         SerialAssistantEvent::status("serial disconnected"),

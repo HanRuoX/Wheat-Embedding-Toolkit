@@ -9,6 +9,7 @@
     "core:default",
     "fs:allow-read-file",
     "fs:allow-write-file",
+    "fs:allow-write-text-file",
     "fs:allow-read-dir",
     "fs:allow-copy-file",
     "fs:allow-mkdir",
@@ -24,6 +25,7 @@
     },
     "core:window:allow-create",
     "core:window:allow-set-title",
+    "core:window:allow-set-theme",
     "core:window:allow-maximize",
     {
       "identifier": "shell:allow-execute",
