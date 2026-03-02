@@ -41,7 +41,7 @@
     "windows": [
       {
         "center": true,
-        "dragDropEnabled":true,
+        "dragDropEnabled": true,
         "theme": null,
         "height": 800,
         "minHeight": 800,

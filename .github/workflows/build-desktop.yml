@@ -13,6 +13,8 @@ jobs:
   build:
     name: Build ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
+    env:
+      RELEASE_VERSION: ${{ github.ref_name }}
     strategy:
       fail-fast: false
       matrix:
@@ -21,14 +23,17 @@ jobs:
             platform: windows-x64
             target: x86_64-pc-windows-msvc
             add_rust_target: ""
+            bundle_args: --bundles nsis
           - os: macos-latest
             platform: macos-x64
             target: x86_64-apple-darwin
             add_rust_target: x86_64-apple-darwin
+            bundle_args: ""
           - os: macos-latest
             platform: macos-arm64
             target: aarch64-apple-darwin
             add_rust_target: ""
+            bundle_args: ""
 
     steps:
       - name: Checkout
@@ -55,8 +60,15 @@ jobs:
       - name: Install frontend dependencies
         run: yarn install
 
+      - name: Sync app version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          VERSION="${RELEASE_VERSION#v}"
+          node scripts/sync-release-version.mjs "$VERSION"
+
       - name: Build Tauri bundle
-        run: yarn tauri build --target ${{ matrix.target }}
+        run: yarn tauri build --target ${{ matrix.target }} ${{ matrix.bundle_args }}
 
       - name: Upload bundle artifacts
         uses: actions/upload-artifact@v4
