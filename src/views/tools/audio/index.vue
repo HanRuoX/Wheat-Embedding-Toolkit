@@ -351,6 +351,29 @@ watch([sourceSampleRate, sourceChannels], async () => {
   await loadAudio(audioPath.value);
 });
 
+function enableRegionSelectionCreation() {
+  if (!regionsPlugin || disableRegionDragSelection || activeRegion) {
+    return;
+  }
+
+  disableRegionDragSelection = regionsPlugin.enableDragSelection(
+    {
+      color: "rgba(74, 111, 210, 0.22)",
+      drag: true,
+      resize: true,
+      resizeStart: true,
+      resizeEnd: true,
+      minLength: 0.05,
+    },
+    2
+  );
+}
+
+function disableRegionSelectionCreation() {
+  disableRegionDragSelection?.();
+  disableRegionDragSelection = null;
+}
+
 async function ensureWaveSurfer() {
   if (waveSurfer || !waveContainer.value) {
     return;
@@ -383,17 +406,7 @@ async function ensureWaveSurfer() {
   regionsPlugin = waveSurfer.getActivePlugins().find((plugin: any) => {
     return typeof plugin?.addRegion === "function" && typeof plugin?.enableDragSelection === "function";
   });
-  disableRegionDragSelection = regionsPlugin?.enableDragSelection(
-    {
-      color: "rgba(74, 111, 210, 0.22)",
-      drag: true,
-      resize: true,
-      resizeStart: true,
-      resizeEnd: true,
-      minLength: 0.05,
-    },
-    2
-  ) ?? null;
+  enableRegionSelectionCreation();
 
   regionsPlugin?.on("region-created", (region: any) => {
     setActiveRegion(region);
@@ -408,6 +421,7 @@ async function ensureWaveSurfer() {
       activeRegion = null;
       selectionStart.value = 0;
       selectionEnd.value = 0;
+      enableRegionSelectionCreation();
     }
   });
 
@@ -545,6 +559,7 @@ function setActiveRegion(region: any) {
   if (activeRegion && activeRegion.id !== region.id) {
     activeRegion.remove();
   }
+  disableRegionSelectionCreation();
   activeRegion = region;
   syncSelection(region);
 }
@@ -555,6 +570,7 @@ function syncSelection(region: any) {
 }
 
 function clearSelection() {
+  disableRegionSelectionCreation();
   if (activeRegion) {
     activeRegion.remove();
     activeRegion = null;
@@ -562,6 +578,7 @@ function clearSelection() {
   selectionStart.value = 0;
   selectionEnd.value = 0;
   regionsPlugin?.clearRegions?.();
+  enableRegionSelectionCreation();
 }
 
 async function previewSelection() {
@@ -714,8 +731,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
-  disableRegionDragSelection?.();
-  disableRegionDragSelection = null;
+  disableRegionSelectionCreation();
   regionsPlugin = null;
   activeRegion = null;
   waveSurfer?.destroy();
