@@ -7,6 +7,8 @@ use btleplug::platform::{Adapter, Manager};
 use futures::stream::StreamExt;
 use serialport::{available_ports, DataBits, FlowControl, Parity, StopBits};
 use serde_json::Value;
+#[cfg(target_os = "windows")]
+use std::ffi::OsString;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::env;
@@ -146,6 +148,39 @@ fn sidecar_binary_name(binary_name: &str) -> String {
     {
         format!("{binary_name}-{}", env!("TAURI_ENV_TARGET_TRIPLE"))
     }
+}
+
+#[cfg(target_os = "windows")]
+fn collect_binary_support_dirs() -> Vec<PathBuf> {
+    let mut directories = Vec::new();
+
+    if let Some(state) = BINARY_PATH_STATE.get() {
+        if let Some(executable_dir) = &state.executable_dir {
+            directories.push(executable_dir.clone());
+            directories.push(executable_dir.join("bin"));
+            directories.push(executable_dir.join("binaries"));
+        }
+        if let Some(resource_dir) = &state.resource_dir {
+            directories.push(resource_dir.clone());
+            directories.push(resource_dir.join("bin"));
+            directories.push(resource_dir.join("binaries"));
+        }
+        if let Some(workspace_staged_bin_dir) = &state.workspace_staged_bin_dir {
+            directories.push(workspace_staged_bin_dir.clone());
+        }
+        if let Some(workspace_source_bin_dir) = &state.workspace_source_bin_dir {
+            directories.push(workspace_source_bin_dir.clone());
+        }
+    }
+
+    let mut deduped = Vec::new();
+    for directory in directories {
+        if directory.exists() && !deduped.iter().any(|item: &PathBuf| item == &directory) {
+            deduped.push(directory);
+        }
+    }
+
+    deduped
 }
 
 fn is_lfs_pointer_file(path: &Path) -> bool {
@@ -431,7 +466,25 @@ fn build_binary_command(binary_path: &str) -> Command {
         }
     }
 
-    Command::new(binary_path)
+    #[cfg(not(target_os = "windows"))]
+    let command = Command::new(binary_path);
+
+    #[cfg(target_os = "windows")]
+    let mut command = Command::new(binary_path);
+
+    #[cfg(target_os = "windows")]
+    {
+        let mut search_paths = collect_binary_support_dirs();
+        if let Some(existing_path) = env::var_os("PATH") {
+            search_paths.extend(env::split_paths(&existing_path));
+        }
+
+        let joined_path = env::join_paths(search_paths.iter().map(PathBuf::as_path))
+            .unwrap_or_else(|_| OsString::from(env::var_os("PATH").unwrap_or_default()));
+        command.env("PATH", joined_path);
+    }
+
+    command
 }
 
 fn parse_optional_u64(value: Option<&Value>) -> Option<u64> {
