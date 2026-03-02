@@ -8,12 +8,11 @@
   </div>
 </template>
 <script setup lang="ts">
-import { ref, onBeforeUnmount } from "vue";
+import { ref, onBeforeUnmount, onMounted } from "vue";
 import { InboxOutlined } from "@ant-design/icons-vue";
-
-import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useVModels } from "@vueuse/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 
 const props = defineProps({
   title: { type: String, required: true },
@@ -27,41 +26,49 @@ const emit = defineEmits<{
   (e: "dropHoverDrop", {}): void;
   (e: "dropCancelled", {}): void;
 }>();
-const { title, subtitle, isDirectory, isMultiple } = useVModels(props, emit);
 const dropBoxClass = ref("dropBox");
+let unlistenDragDrop: UnlistenFn | null = null;
+
 const handle = async () => {
   const selected = await open({
-    directory: isDirectory.value,
-    multiple: isMultiple.value,
+    directory: props.isDirectory,
+    multiple: props.isMultiple,
   });
   if (selected !== null) {
     emit("open", selected);
   }
 };
 
-const drop = await listen("tauri://file-drop", (event: any) => {
-  dropBoxClass.value = "dropBox";
-  if (event.payload.length == 1 && !isMultiple) {
-    emit("drop", event.payload[0]);
-  } else {
-    emit("drop", event.payload);
-  }
-});
-
-const dropHover = await listen("tauri://file-drop-hover", (event: any) => {
-  dropBoxClass.value = "dropBoxHover";
-  emit("dropHoverDrop", "ok");
-});
-
-const dropCancelled = await listen("tauri://file-drop-cancelled", () => {
-  dropBoxClass.value = "dropBox";
-  emit("dropCancelled", "ok");
+onMounted(async () => {
+  const webview = getCurrentWebview();
+  unlistenDragDrop = await webview.onDragDropEvent((event) => {
+    switch (event.payload.type) {
+      case "enter":
+      case "over":
+        dropBoxClass.value = "dropBoxHover";
+        emit("dropHoverDrop", "ok");
+        break;
+      case "drop":
+        dropBoxClass.value = "dropBox";
+        if (event.payload.paths.length === 1 && !props.isMultiple) {
+          emit("drop", event.payload.paths[0]);
+        } else {
+          emit("drop", event.payload.paths);
+        }
+        break;
+      case "leave":
+        dropBoxClass.value = "dropBox";
+        emit("dropCancelled", "ok");
+        break;
+      default:
+        break;
+    }
+  });
 });
 
 onBeforeUnmount(() => {
-  drop();
-  dropHover();
-  dropCancelled();
+  unlistenDragDrop?.();
+  unlistenDragDrop = null;
 });
 </script>
 

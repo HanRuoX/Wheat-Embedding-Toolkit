@@ -1023,6 +1023,11 @@ warning@^4.0.0:
   dependencies:
     loose-envify "^1.0.0"
 
+wavesurfer.js@^7.12.1:
+  version "7.12.1"
+  resolved "https://registry.yarnpkg.com/wavesurfer.js/-/wavesurfer.js-7.12.1.tgz#4b46dc5ee1a0429c7c33ca78397105c4a087f1fb"
+  integrity sha512-NswPjVHxk0Q1F/VMRemCPUzSojjuHHisQrBqQiRXg7MVbe3f5vQ6r0rTTXA/a/neC/4hnOEC4YpXca4LpH0SUg==
+
 xterm-addon-fit@^0.7.0:
   version "0.7.0"
   resolved "https://registry.npmjs.org/xterm-addon-fit/-/xterm-addon-fit-0.7.0.tgz"

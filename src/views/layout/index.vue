@@ -95,8 +95,15 @@
           :key="String(menu.name)"
           @click="to(menu)"
         >
-          <NavIcon :icon="String(menu.meta?.icon || '')" :alt="String(menu.meta?.title || '')" />
-          <span>{{ menu.meta?.title }}</span>
+          <div class="menu-item-content">
+            <NavIcon
+              class="menu-item-icon"
+              :icon="String(menu.meta?.icon || '')"
+              :alt="String(menu.meta?.title || '')"
+              size="18px"
+            />
+            <span class="menu-item-label">{{ menu.meta?.title }}</span>
+          </div>
         </a-menu-item>
       </a-menu>
       <div
@@ -168,6 +175,7 @@ const findToolRoute = (name: string) =>
 const dockSections = computed<DockSection[]>(() => {
   const serial = findToolRoute("serial");
   const ble = findToolRoute("ble");
+  const audio = findToolRoute("audio");
   const esp32Menus = ["basic", "flash", "partition", "firmware"]
     .map((name) => findToolRoute(name))
     .filter((item): item is RouteRecordRaw => !!item);
@@ -198,6 +206,15 @@ const dockSections = computed<DockSection[]>(() => {
       icon: String(ble.meta?.icon || "🐳"),
       title: String(ble.meta?.title || "BLE"),
       menus: [ble],
+    });
+  }
+
+  if (audio) {
+    sections.push({
+      key: "audio",
+      icon: String(audio.meta?.icon || "🎵"),
+      title: String(audio.meta?.title || i18n.global.t("menu.audioTool")),
+      menus: [audio],
     });
   }
 
@@ -237,7 +254,8 @@ const showGlobalTerminal = computed(
   () =>
     route.name !== "serial" &&
     route.name !== "setting" &&
-    route.name !== "ble"
+    route.name !== "ble" &&
+    route.name !== "audio"
 );
 const initialMenuCollapsed = (() => {
   const saved = localStorage.getItem(MENU_COLLAPSED_STORAGE_KEY);
@@ -555,12 +573,43 @@ onBeforeUnmount(() => {
 
 .menu-list :deep(.ant-menu-item) {
   margin-inline: 8px;
+  padding-inline: 12px !important;
   border-radius: 8px;
+}
+
+.menu-list :deep(.ant-menu-title-content) {
+  margin-inline-start: 0 !important;
 }
 
 .menu-list :deep(.ant-menu-item-selected) {
   background: var(--accent-soft);
   color: var(--text-primary);
+}
+
+.menu-item-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.menu-item-icon {
+  flex: 0 0 18px;
+  width: 18px;
+}
+
+.menu-item-content :deep(.nav-icon) {
+  width: 18px;
+  font-size: 18px;
+}
+
+.menu-item-content :deep(.nav-icon-image) {
+  width: 18px;
+  height: 18px;
+}
+
+.menu-item-label {
+  min-width: 0;
 }
 
 .main-panel {

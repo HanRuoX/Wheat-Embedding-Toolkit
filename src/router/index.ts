@@ -3,6 +3,7 @@ import Layout from "@/views/layout/index.vue";
 import i18n from "@/locales/i18n";
 import bleIcon from "@/assets/ble-icon.png";
 import serialIcon from "@/assets/serial-icon.png";
+import audioIcon from "@/assets/audio-icon.png";
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -86,6 +87,16 @@ const router = createRouter({
               meta: {
                 icon: "🐰",
                 title: i18n.global.t("menu.firmware"),
+                display: true,
+              },
+            },
+            {
+              path: "/tools/audio",
+              name: "audio",
+              component: () => import("@/views/tools/audio/index.vue"),
+              meta: {
+                icon: audioIcon,
+                title: i18n.global.t("menu.audioTool"),
                 display: true,
               },
             },
