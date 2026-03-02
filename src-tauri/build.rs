@@ -88,11 +88,6 @@ fn stage_windows_binaries(manifest_dir: &Path, target_triple: &str, staged_bin_d
             let file_name = file_name.to_string_lossy();
             let lower_name = file_name.to_ascii_lowercase();
 
-            if lower_name.ends_with(".dll") {
-                copy_file_if_exists(&path, &staged_bin_dir.join(file_name.as_ref()));
-                continue;
-            }
-
             if lower_name == "ffmpeg.exe" {
                 copy_file_if_exists(
                     &path,

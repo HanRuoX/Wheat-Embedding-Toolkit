@@ -485,7 +485,6 @@ async function loadAudio(path: string) {
   clearSelection();
 
   await ensureWaveSurfer();
-  await refreshAudioInfo();
 
   if (!waveSurfer) {
     waveLoading.value = false;
