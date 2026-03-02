@@ -13,10 +13,10 @@ use std::env;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc::{self, Sender, SyncSender, TryRecvError};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -75,6 +75,76 @@ struct AudioConversionResult {
 struct AudioSourceResult {
     playback_path: String,
     info: AudioInfo,
+}
+
+#[derive(Default, Clone)]
+struct BinaryPathState {
+    resource_dir: Option<PathBuf>,
+    workspace_staged_bin_dir: Option<PathBuf>,
+    workspace_source_bin_dir: Option<PathBuf>,
+}
+
+static BINARY_PATH_STATE: OnceLock<BinaryPathState> = OnceLock::new();
+
+fn log_audio(message: impl AsRef<str>) {
+    println!("[audio] {}", message.as_ref());
+}
+
+fn detect_workspace_staged_bin_dir() -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Ok(current_dir) = env::current_dir() {
+        candidates.push(current_dir.join("src-tauri").join("binaries"));
+        candidates.push(current_dir.join("binaries"));
+    }
+
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    candidates.push(manifest_dir.join("binaries"));
+
+    candidates.into_iter().find(|dir| dir.exists())
+}
+
+fn detect_workspace_source_bin_dir() -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Ok(current_dir) = env::current_dir() {
+        candidates.push(current_dir.join("src-tauri").join("bin"));
+        candidates.push(current_dir.join("bin"));
+    }
+
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    candidates.push(manifest_dir.join("bin"));
+
+    candidates.into_iter().find(|dir| dir.exists())
+}
+
+fn source_binary_relative_paths(binary_name: &str) -> Vec<PathBuf> {
+    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        vec![
+            PathBuf::from("macos-arm64").join(binary_name),
+            PathBuf::from("macos-x64").join(binary_name),
+            PathBuf::from(binary_name),
+        ]
+    } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+        vec![
+            PathBuf::from("macos-x64").join(binary_name),
+            PathBuf::from("macos-arm64").join(binary_name),
+            PathBuf::from(binary_name),
+        ]
+    } else {
+        vec![PathBuf::from(binary_name)]
+    }
+}
+
+fn sidecar_binary_name(binary_name: &str) -> String {
+    #[cfg(target_os = "windows")]
+    {
+        format!("{binary_name}-{}.exe", env!("TAURI_ENV_TARGET_TRIPLE"))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        format!("{binary_name}-{}", env!("TAURI_ENV_TARGET_TRIPLE"))
+    }
 }
 
 struct SerialSession {
@@ -248,40 +318,98 @@ fn wait_for_output_drain(
     }
 }
 
-fn resolve_binary_path(binary: &str) -> String {
+fn resolve_binary_path(binary: &str) -> Result<String, String> {
     let env_key = format!("{}_BIN", binary.to_ascii_uppercase());
     if let Ok(path) = env::var(&env_key) {
         if !path.trim().is_empty() {
-            return path;
+            log_audio(format!("resolved {binary} from env {env_key}: {path}"));
+            return Ok(path);
         }
     }
 
-    let mut candidates = vec![binary.to_string()];
+    let executable_name = {
+        #[cfg(target_os = "windows")]
+        {
+            format!("{binary}.exe")
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            binary.to_string()
+        }
+    };
 
+    let mut bundled_candidates: Vec<PathBuf> = Vec::new();
+
+        if let Some(state) = BINARY_PATH_STATE.get() {
+        if let Some(resource_dir) = &state.resource_dir {
+            bundled_candidates.push(resource_dir.join(sidecar_binary_name(binary)));
+            bundled_candidates.push(resource_dir.join("binaries").join(sidecar_binary_name(binary)));
+            bundled_candidates.push(resource_dir.join("bin").join(&executable_name));
+            bundled_candidates.push(resource_dir.join(&executable_name));
+        }
+        if let Some(workspace_staged_bin_dir) = &state.workspace_staged_bin_dir {
+            bundled_candidates.push(workspace_staged_bin_dir.join(sidecar_binary_name(binary)));
+        }
+        if let Some(workspace_source_bin_dir) = &state.workspace_source_bin_dir {
+            for relative_path in source_binary_relative_paths(&executable_name) {
+                bundled_candidates.push(workspace_source_bin_dir.join(relative_path));
+            }
+        }
+    }
+
+    if let Some(candidate) = bundled_candidates
+        .into_iter()
+        .find(|candidate| candidate.exists())
+    {
+        let resolved = candidate.display().to_string();
+        log_audio(format!("resolved {binary} from bundled path: {resolved}"));
+        return Ok(resolved);
+    }
+
+    let path_probe = Command::new(&executable_name).arg("-version").output();
+    if let Ok(output) = path_probe {
+        if output.status.success() {
+            log_audio(format!("resolved {binary} from PATH: {executable_name}"));
+            return Ok(executable_name);
+        }
+    }
+
+    Err(format!(
+        "{binary} not found. Install system {binary} or bundle `{}` into `src-tauri/bin` so the packaged app can use it without a local install.",
+        executable_name
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn should_run_under_rosetta(binary_path: &str) -> bool {
+    if !cfg!(target_arch = "aarch64") || !Path::new(binary_path).is_file() {
+        return false;
+    }
+
+    let output = Command::new("/usr/bin/file").arg(binary_path).output();
+    let Ok(output) = output else {
+        return false;
+    };
+    if !output.status.success() {
+        return false;
+    }
+
+    let description = String::from_utf8_lossy(&output.stdout);
+    description.contains("Mach-O") && description.contains("x86_64") && !description.contains("arm64")
+}
+
+fn build_binary_command(binary_path: &str) -> Command {
     #[cfg(target_os = "macos")]
     {
-        candidates.push(format!("/opt/homebrew/bin/{binary}"));
-        candidates.push(format!("/usr/local/bin/{binary}"));
+        if should_run_under_rosetta(binary_path) {
+            log_audio(format!("launching x86_64 binary via Rosetta: {binary_path}"));
+            let mut command = Command::new("arch");
+            command.arg("-x86_64").arg(binary_path);
+            return command;
+        }
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        candidates[0] = format!("{binary}.exe");
-    }
-
-    candidates
-        .into_iter()
-        .find(|candidate| candidate.contains(std::path::MAIN_SEPARATOR) && Path::new(candidate).exists())
-        .unwrap_or_else(|| {
-            #[cfg(target_os = "windows")]
-            {
-                format!("{binary}.exe")
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                binary.to_string()
-            }
-        })
+    Command::new(binary_path)
 }
 
 fn parse_optional_u64(value: Option<&Value>) -> Option<u64> {
@@ -383,8 +511,10 @@ fn read_audio_info(path: &str) -> Result<AudioInfo, String> {
         return Err(format!("audio file does not exist: {path}"));
     }
 
-    let ffprobe = resolve_binary_path("ffprobe");
-    let output = Command::new(&ffprobe)
+    let ffprobe = resolve_binary_path("ffprobe")?;
+    log_audio(format!("reading audio info via ffprobe: input={path}"));
+    let mut command = build_binary_command(&ffprobe);
+    let output = command
         .args([
             "-v",
             "error",
@@ -399,6 +529,14 @@ fn read_audio_info(path: &str) -> Result<AudioInfo, String> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        log_audio(format!(
+            "ffprobe failed for input={path}: {}",
+            if stderr.is_empty() {
+                "ffprobe failed to read audio info"
+            } else {
+                stderr.as_str()
+            }
+        ));
         return Err(if stderr.is_empty() {
             "ffprobe failed to read audio info".to_string()
         } else {
@@ -409,6 +547,7 @@ fn read_audio_info(path: &str) -> Result<AudioInfo, String> {
     let probe_json: Value = serde_json::from_slice(&output.stdout)
         .map_err(|e| format!("failed to parse ffprobe output: {e}"))?;
 
+    log_audio(format!("ffprobe succeeded: input={path}"));
     Ok(build_audio_info(path, &probe_json))
 }
 
@@ -482,8 +621,11 @@ fn run_ffmpeg_audio_job(
             .map_err(|e| format!("failed to create output directory: {e}"))?;
     }
 
-    let ffmpeg = resolve_binary_path("ffmpeg");
-    let mut command = Command::new(&ffmpeg);
+    let ffmpeg = resolve_binary_path("ffmpeg")?;
+    log_audio(format!(
+        "starting ffmpeg job: input={input_path}, output={output_path}, input_args={input_args:?}, extra_args={extra_args:?}, codec_args={codec_args:?}"
+    ));
+    let mut command = build_binary_command(&ffmpeg);
     command.arg("-y");
     for arg in input_args {
         command.arg(arg);
@@ -503,6 +645,14 @@ fn run_ffmpeg_audio_job(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        log_audio(format!(
+            "ffmpeg job failed: input={input_path}, output={output_path}, {}",
+            if stderr.is_empty() {
+                "ffmpeg job failed"
+            } else {
+                stderr.as_str()
+            }
+        ));
         return Err(if stderr.is_empty() {
             "ffmpeg job failed".to_string()
         } else {
@@ -510,6 +660,7 @@ fn run_ffmpeg_audio_job(
         });
     }
 
+    log_audio(format!("ffmpeg job succeeded: input={input_path}, output={output_path}"));
     Ok(())
 }
 
@@ -697,6 +848,10 @@ fn prepare_audio_source_impl(
     sample_rate: Option<u32>,
     channels: Option<u32>,
 ) -> Result<AudioSourceResult, String> {
+    log_audio(format!(
+        "preparing audio source: input={path}, input_format={:?}, sample_rate={:?}, channels={:?}",
+        input_format, sample_rate, channels
+    ));
     let info = resolve_input_audio_info(path, input_format, sample_rate, channels)?;
     let playback_path = match normalize_input_format(input_format, path).as_deref() {
         Some("pcm") => {
@@ -706,6 +861,9 @@ fn prepare_audio_source_impl(
         _ => path.to_string(),
     };
 
+    log_audio(format!(
+        "audio source prepared: input={path}, playback_path={playback_path}"
+    ));
     Ok(AudioSourceResult { playback_path, info })
 }
 
@@ -1054,6 +1212,7 @@ fn serial_assistant_is_open(
 
 #[tauri::command]
 fn get_audio_info(path: &str) -> Result<AudioInfo, String> {
+    log_audio(format!("invoke get_audio_info: input={path}"));
     read_audio_info(path)
 }
 
@@ -1065,6 +1224,10 @@ fn prepare_audio_source(
     sample_rate: Option<u32>,
     channels: Option<u32>,
 ) -> Result<AudioSourceResult, String> {
+    log_audio(format!(
+        "invoke prepare_audio_source: input={path}, input_format={:?}, sample_rate={:?}, channels={:?}",
+        input_format, sample_rate, channels
+    ));
     prepare_audio_source_impl(
         &app_handle,
         path,
@@ -1085,6 +1248,17 @@ fn convert_audio_format(
     sample_rate: Option<u32>,
     channels: Option<u32>,
 ) -> Result<AudioConversionResult, String> {
+    log_audio(format!(
+        "invoke convert_audio_format: input={}, output={}, format={}, input_format={:?}, input_sample_rate={:?}, input_channels={:?}, sample_rate={:?}, channels={:?}",
+        input_path,
+        output_path,
+        output_format,
+        input_format,
+        input_sample_rate,
+        input_channels,
+        sample_rate,
+        channels
+    ));
     if !Path::new(input_path).exists() {
         return Err(format!("input audio file does not exist: {input_path}"));
     }
@@ -1110,6 +1284,10 @@ fn convert_audio_format(
     let transform_args = build_audio_transform_args(sample_rate, channels)?;
     run_ffmpeg_audio_job(&input_args, input_path, output_path, &codec_args, &transform_args)?;
 
+    log_audio(format!(
+        "convert_audio_format finished: output={}, resolved_format={}",
+        output_path, output_format
+    ));
     Ok(AudioConversionResult {
         output_path: output_path.to_string(),
         info: build_output_audio_info(output_path, output_format, sample_rate, channels, &source_info)?,
@@ -1127,6 +1305,17 @@ fn clip_audio_segment(
     start_time: f64,
     end_time: f64,
 ) -> Result<AudioConversionResult, String> {
+    log_audio(format!(
+        "invoke clip_audio_segment: input={}, output={}, format={}, input_format={:?}, sample_rate={:?}, channels={:?}, start_time={:.3}, end_time={:.3}",
+        input_path,
+        output_path,
+        output_format,
+        input_format,
+        sample_rate,
+        channels,
+        start_time,
+        end_time
+    ));
     if !Path::new(input_path).exists() {
         return Err(format!("input audio file does not exist: {input_path}"));
     }
@@ -1150,6 +1339,10 @@ fn clip_audio_segment(
     ];
     run_ffmpeg_audio_job(&input_args, input_path, output_path, &codec_args, &extra_args)?;
 
+    log_audio(format!(
+        "clip_audio_segment finished: output={}, start_time={:.3}, end_time={:.3}",
+        output_path, start_time, end_time
+    ));
     Ok(AudioConversionResult {
         output_path: output_path.to_string(),
         info: build_output_audio_info(output_path, output_format, None, None, &source_info)?,
@@ -1266,6 +1459,19 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let _ = app.get_webview_window("main");
+            let resource_dir = app.path().resource_dir().ok();
+            let workspace_staged_bin_dir = detect_workspace_staged_bin_dir();
+            let workspace_source_bin_dir = detect_workspace_source_bin_dir();
+            log_audio(format!(
+                "binary path state initialized: resource_dir={:?}, workspace_staged_bin_dir={:?}, workspace_source_bin_dir={:?}",
+                resource_dir, workspace_staged_bin_dir, workspace_source_bin_dir
+            ));
+            let _ = BINARY_PATH_STATE.set(BinaryPathState {
+                resource_dir,
+                workspace_staged_bin_dir,
+                workspace_source_bin_dir,
+            });
+
             let app_dir = app.path().app_data_dir().unwrap_or_else(|_| {
                 let mut fallback = env::temp_dir();
                 fallback.push("wheat-embedding-toolkit");

@@ -4,6 +4,8 @@ src-tauri/firmware
 
 # src-tauri/target/release/tools
 src-tauri/target/release/firmware
+src-tauri/runtime-bin
+src-tauri/binaries
 # Logs
 logs
 *.log
