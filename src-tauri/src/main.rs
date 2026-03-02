@@ -80,6 +80,7 @@ struct AudioSourceResult {
 #[derive(Default, Clone)]
 struct BinaryPathState {
     resource_dir: Option<PathBuf>,
+    executable_dir: Option<PathBuf>,
     workspace_staged_bin_dir: Option<PathBuf>,
     workspace_source_bin_dir: Option<PathBuf>,
 }
@@ -145,6 +146,22 @@ fn sidecar_binary_name(binary_name: &str) -> String {
     {
         format!("{binary_name}-{}", env!("TAURI_ENV_TARGET_TRIPLE"))
     }
+}
+
+fn is_lfs_pointer_file(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+
+    let Ok(content) = fs::read(path) else {
+        return false;
+    };
+
+    let prefix_len = content.len().min(128);
+    let prefix = &content[..prefix_len];
+    std::str::from_utf8(prefix)
+        .map(|text| text.starts_with("version https://git-lfs.github.com/spec/v1"))
+        .unwrap_or(false)
 }
 
 struct SerialSession {
@@ -340,15 +357,20 @@ fn resolve_binary_path(binary: &str) -> Result<String, String> {
 
     let mut bundled_candidates: Vec<PathBuf> = Vec::new();
 
-        if let Some(state) = BINARY_PATH_STATE.get() {
+    if let Some(state) = BINARY_PATH_STATE.get() {
+        if let Some(workspace_staged_bin_dir) = &state.workspace_staged_bin_dir {
+            bundled_candidates.push(workspace_staged_bin_dir.join(sidecar_binary_name(binary)));
+        }
         if let Some(resource_dir) = &state.resource_dir {
             bundled_candidates.push(resource_dir.join(sidecar_binary_name(binary)));
             bundled_candidates.push(resource_dir.join("binaries").join(sidecar_binary_name(binary)));
             bundled_candidates.push(resource_dir.join("bin").join(&executable_name));
             bundled_candidates.push(resource_dir.join(&executable_name));
         }
-        if let Some(workspace_staged_bin_dir) = &state.workspace_staged_bin_dir {
-            bundled_candidates.push(workspace_staged_bin_dir.join(sidecar_binary_name(binary)));
+        if let Some(executable_dir) = &state.executable_dir {
+            bundled_candidates.push(executable_dir.join(&executable_name));
+            bundled_candidates.push(executable_dir.join(binary));
+            bundled_candidates.push(executable_dir.join(sidecar_binary_name(binary)));
         }
         if let Some(workspace_source_bin_dir) = &state.workspace_source_bin_dir {
             for relative_path in source_binary_relative_paths(&executable_name) {
@@ -359,7 +381,7 @@ fn resolve_binary_path(binary: &str) -> Result<String, String> {
 
     if let Some(candidate) = bundled_candidates
         .into_iter()
-        .find(|candidate| candidate.exists())
+        .find(|candidate| candidate.exists() && !is_lfs_pointer_file(candidate))
     {
         let resolved = candidate.display().to_string();
         log_audio(format!("resolved {binary} from bundled path: {resolved}"));
@@ -1460,14 +1482,18 @@ fn main() {
         .setup(|app| {
             let _ = app.get_webview_window("main");
             let resource_dir = app.path().resource_dir().ok();
+            let executable_dir = env::current_exe()
+                .ok()
+                .and_then(|path| path.parent().map(Path::to_path_buf));
             let workspace_staged_bin_dir = detect_workspace_staged_bin_dir();
             let workspace_source_bin_dir = detect_workspace_source_bin_dir();
             log_audio(format!(
-                "binary path state initialized: resource_dir={:?}, workspace_staged_bin_dir={:?}, workspace_source_bin_dir={:?}",
-                resource_dir, workspace_staged_bin_dir, workspace_source_bin_dir
+                "binary path state initialized: resource_dir={:?}, executable_dir={:?}, workspace_staged_bin_dir={:?}, workspace_source_bin_dir={:?}",
+                resource_dir, executable_dir, workspace_staged_bin_dir, workspace_source_bin_dir
             ));
             let _ = BINARY_PATH_STATE.set(BinaryPathState {
                 resource_dir,
+                executable_dir,
                 workspace_staged_bin_dir,
                 workspace_source_bin_dir,
             });

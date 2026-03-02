@@ -2,9 +2,28 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+fn is_lfs_pointer_file(path: &Path) -> bool {
+    let Ok(content) = fs::read(path) else {
+        return false;
+    };
+
+    let prefix_len = content.len().min(128);
+    let prefix = &content[..prefix_len];
+    std::str::from_utf8(prefix)
+        .map(|text| text.starts_with("version https://git-lfs.github.com/spec/v1"))
+        .unwrap_or(false)
+}
+
 fn copy_file_if_exists(source: &Path, target: &Path) {
     if !source.exists() {
         return;
+    }
+
+    if is_lfs_pointer_file(source) {
+        panic!(
+            "source binary is still a Git LFS pointer: {}. Run `git lfs pull` before building.",
+            source.display()
+        );
     }
 
     if let Some(parent) = target.parent() {
