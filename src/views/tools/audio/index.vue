@@ -232,7 +232,7 @@ import {
 
 const waveContainer = ref<HTMLElement | null>(null);
 const audioPath = ref("");
-const outputFormat = ref("mp3");
+const outputFormat = ref("wav");
 const sourceSampleRate = ref(16000);
 const sourceChannels = ref(1);
 const conversionSampleRate = ref<number | "keep">("keep");
@@ -256,14 +256,10 @@ let activeRegion: any = null;
 let disableRegionDragSelection: (() => void) | null = null;
 
 const formatOptions = [
-  { label: "MP3", value: "mp3" },
   { label: "WAV", value: "wav" },
-  { label: "FLAC", value: "flac" },
   { label: "PCM", value: "pcm" },
-  { label: "M4A", value: "m4a" },
-  { label: "OGG", value: "ogg" },
+  { label: "MP3", value: "mp3" },
   { label: "OPUS", value: "opus" },
-  { label: "AAC", value: "aac" },
 ];
 const isPcmSource = computed(() => /\.pcm$/i.test(audioPath.value));
 const sourceInputFormat = computed(() => (isPcmSource.value ? "pcm" : undefined));
@@ -457,7 +453,7 @@ async function selectAudioFile() {
     filters: [
       {
         name: "Audio",
-        extensions: ["mp3", "wav", "flac", "m4a", "ogg", "opus", "aac", "pcm"],
+        extensions: ["mp3", "wav", "flac", "m4a", "ogg", "aac", "pcm"],
       },
     ],
   });
