@@ -58,9 +58,12 @@ jobs:
         if: startsWith(matrix.platform, 'macos-')
         shell: bash
         run: |
-          python3 -m pip install --user "cmake<4"
-          echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
-          export PATH="$(python3 -m site --user-base)/bin:$PATH"
+          python3 -m venv "$RUNNER_TEMP/cmake-venv"
+          source "$RUNNER_TEMP/cmake-venv/bin/activate"
+          python3 -m pip install --upgrade pip
+          python3 -m pip install "cmake<4"
+          echo "$RUNNER_TEMP/cmake-venv/bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/cmake-venv/bin:$PATH"
           cmake --version
 
       - name: Add Rust target
