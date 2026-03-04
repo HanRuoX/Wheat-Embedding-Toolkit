@@ -54,6 +54,15 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Pin CMake 3.x for macOS audio deps
+        if: startsWith(matrix.platform, 'macos-')
+        shell: bash
+        run: |
+          python3 -m pip install --user "cmake<4"
+          echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
+          export PATH="$(python3 -m site --user-base)/bin:$PATH"
+          cmake --version
+
       - name: Add Rust target
         if: matrix.add_rust_target != ''
         run: rustup target add ${{ matrix.add_rust_target }}
